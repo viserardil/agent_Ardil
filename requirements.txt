@@ -1,0 +1,26 @@
+# AgentArdil backend bağımlılıkları.
+# pyproject.toml ile senkron; uv kullanmadan kurmak için:
+#   pip install -r requirements.txt
+# Çalıştırma: python run_api.py  (run_api.py / main.py, src/ yolunu kendisi ekler)
+
+# --- Ajan çekirdeği (LangChain / LangGraph) ---
+# create_agent langchain>=1.0'da; eski langgraph.prebuilt.create_react_agent v1.0'da
+# deprecate edildi.
+langchain>=1.0
+langgraph>=1.0
+langchain-core>=1.0
+langchain-openai>=1.0
+
+# --- Yapı taşları ---
+python-dotenv>=1.0.0
+pydantic>=2.7.0
+
+# --- Araçlar ---
+yfinance>=0.2.40          # finans araçları
+matplotlib>=3.8.0         # plot_chart / visualize_data
+requests>=2.31.0          # web_search (Tavily REST)
+
+# --- HTTP API (frontend'in konuştuğu backend) ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9   # /api/transcribe dosya yüklemesi

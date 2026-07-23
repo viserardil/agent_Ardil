@@ -390,8 +390,9 @@ body {
 /* Chat Container & Messages */
 .chat-body {
   flex: 1;
+  min-height: 0; /* flex çocuğun taşıp scroll üretebilmesi için şart */
   overflow-y: auto;
-  padding: 24px 32px 140px 32px;
+  padding: 24px 32px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -620,17 +621,19 @@ body {
 
 /* Chat Input Footer Area */
 .chat-footer {
-  position: fixed;
-  bottom: 0;
-  right: 0;
-  left: 260px;
+  /* Sabit (fixed) değil, normal flex akışında: main-workspace bir dikey flex
+     kolonu ve chat-body flex:1 ile kalan alanı alıp scroll ediyor. Footer'ı fixed
+     yapmak, değişken yüksekliği (öneri çipleri + cihaz seçici + seviye çubuğu)
+     yüzünden son mesajları arkasında bırakıp "en alta kaydıramama" sorununu
+     doğuruyordu. */
+  flex-shrink: 0;
   padding: 16px 32px 14px 32px;
-  background: linear-gradient(180deg, rgba(244, 246, 251, 0) 0%, rgba(244, 246, 251, 0.9) 30%, rgba(244, 246, 251, 1) 100%);
+  background-color: var(--bg-app);
+  border-top: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
-  z-index: 20;
 }
 
 .suggestion-chips {

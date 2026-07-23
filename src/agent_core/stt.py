@@ -32,6 +32,27 @@ def _settings() -> dict:
     }
 
 
+def _resolve_language(requested: str | None, env_default: str | None) -> str | None:
+    """Bir istek için etkin transkripsiyon dilini belirler.
+
+    - requested None       : istek dil BELİRTMEDİ → env varsayılanı (STT_LANGUAGE).
+                             Doğrudan API / CLI çağrıları böyle davranır.
+    - requested 'auto'/'' : otomatik algıla → Whisper'a dil gönderilmez, env ATLANIR.
+                             Frontend'deki "Otomatik" seçeneği böyle gelir.
+    - requested kod        : o dile SABİTLE (ör. 'tr', 'es', 'en').
+
+    Frontend her istekte açık bir değer (dil kodu ya da 'auto') gönderdiğinden env,
+    arayüzden gelen kayıtları etkilemez; yalnızca dil alanını hiç göndermeyen
+    çağrılar için varsayılan olur.
+    """
+    if requested is None:
+        return env_default
+    r = requested.strip().lower()
+    if r in ("", "auto"):
+        return None
+    return r
+
+
 def transcribe(
     audio_bytes: bytes,
     *,
@@ -59,7 +80,7 @@ def transcribe(
         "response_format": "json",
         "temperature": "0",
     }
-    lang = language or settings["language"]
+    lang = _resolve_language(language, settings["language"])
     if lang:
         data["language"] = lang
 

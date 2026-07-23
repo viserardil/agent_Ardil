@@ -1,6 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Paperclip, Mic, Square, Loader2, ArrowUp } from 'lucide-react';
+import { Paperclip, Mic, Square, Loader2, ArrowUp, Languages } from 'lucide-react';
 import { api } from '../api';
+
+// Ses tanıma dilleri. "auto" = Whisper kendi tespit eder. Yeni dil eklemek için
+// {code, label} eklemen yeterli — kod ISO 639-1 iki harfli (tr, es, en, de...).
+const LANGUAGES = [
+  { code: 'auto', label: 'Otomatik algıla' },
+  { code: 'tr', label: 'Türkçe' },
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'fr', label: 'Français' },
+  { code: 'it', label: 'Italiano' },
+  { code: 'pt', label: 'Português' },
+  { code: 'ru', label: 'Русский' },
+  { code: 'ar', label: 'العربية' },
+  { code: 'zh', label: '中文' },
+  { code: 'ja', label: '日本語' }
+];
 
 export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary }) {
   const [text, setText] = useState('');
@@ -15,6 +32,18 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState('');
   const [level, setLevel] = useState(0);
+
+  // Ses tanıma dili — arayüzden anında değişir, sunucu restart'ı gerekmez.
+  // Seçim localStorage'da tutulur (sayfa yenilense de korunur). Varsayılan: Türkçe.
+  const [lang, setLang] = useState(() => localStorage.getItem('ardil_stt_lang') || 'tr');
+  const changeLang = (code) => {
+    setLang(code);
+    try {
+      localStorage.setItem('ardil_stt_lang', code);
+    } catch {
+      // localStorage kapalıysa (gizli sekme vb.) sessiz geç
+    }
+  };
 
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
@@ -148,7 +177,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
 
         setTranscribing(true);
         try {
-          const { text: transcript } = await api.transcribe(blob, `audio.${ext}`, 'tr');
+          const { text: transcript } = await api.transcribe(blob, `audio.${ext}`, lang);
           if (transcript) {
             setText((prev) => (prev.trim() ? prev.trim() + ' ' : '') + transcript);
           } else {
@@ -195,9 +224,28 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
         <div style={{ color: '#b91c1c', fontSize: 13, marginBottom: 8 }}>{micError}</div>
       )}
 
-      {/* Kayıt sırasında canlı seviye + cihaz seçimi */}
-      {(recording || devices.length > 1) && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+      {/* Ses tanıma dili (her zaman) + kayıtta canlı seviye + çok mikrofonda cihaz seçimi */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+          <label
+            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}
+            title="Ses tanıma dili"
+          >
+            <Languages size={14} />
+            <select
+              value={lang}
+              onChange={(e) => changeLang(e.target.value)}
+              disabled={recording}
+              style={{
+                fontSize: 12, padding: '4px 8px', borderRadius: 6,
+                border: '1px solid #e2e8f0', background: '#fff', color: '#334155'
+              }}
+            >
+              {LANGUAGES.map((l) => (
+                <option key={l.code} value={l.code}>{l.label}</option>
+              ))}
+            </select>
+          </label>
+
           {devices.length > 1 && (
             <select
               value={deviceId}
@@ -235,7 +283,6 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
             </div>
           )}
         </div>
-      )}
 
       {/* Suggestion Chips */}
       <div className="suggestion-chips">

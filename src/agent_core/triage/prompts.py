@@ -70,6 +70,12 @@ TRIAGE_PROMPT = ChatPromptTemplate.from_messages(
             "KULLANILABİLİR ARAÇLAR:\n"
             "{tool_catalog}\n"
             "\n"
+            "DİL: lane=direct'te answer'ı DAİMA kullanıcının SON mesajını yazdığı dilde "
+            "yaz — İspanyolca yazdıysa İspanyolca, Türkçe yazdıysa Türkçe, İngilizce "
+            "yazdıysa İngilizce. Bu talimatların Türkçe olması cevabın dilini BELİRLEMEZ; "
+            "dili kullanıcının mesajı belirler. Önceki turlar farklı dilde olsa bile son "
+            "mesajın dili neyse ona uy.\n"
+            "\n"
             "Emin olamadığın durumda direct'i DEĞİL, araç kullanan bir şeridi seç: "
             "uydurulmuş bir cevap, biraz gecikmeden daha kötüdür.",
         ),

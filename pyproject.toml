@@ -1,0 +1,35 @@
+[project]
+name = "agent-ardil"
+version = "0.1.0"
+description = "Triyaj tabanlı hibrit agent sistemi (Plan-Execute / ReAct / Direct)"
+requires-python = ">=3.11"
+dependencies = [
+    # create_agent langchain>=1.0'da; langgraph.prebuilt.create_react_agent
+    # LangGraph v1.0'da deprecate edildi, v2.0'da kalkıyor.
+    "langchain>=1.0",
+    "langgraph>=1.0",
+    "langchain-core>=1.0",
+    "langchain-openai>=1.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.7.0",
+    # Araçlar
+    "yfinance>=0.2.40",      # finans araçları
+    "matplotlib>=3.8.0",     # plot_chart / visualize_data
+    "requests>=2.31.0",      # web_search (Tavily REST)
+    # Frontend'in konuştuğu HTTP API
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",  # /api/transcribe dosya yüklemesi
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_core"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+]

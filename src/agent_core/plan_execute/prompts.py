@@ -62,8 +62,9 @@ Araç başarısız olursa bunu açıkça söyle, tahmin etme.
 yapacağı işi metinle anlatarak, kod yazarak ya da taklit ederek geçiştirme.
 - Çağırdığın her aracın ``reason`` alanını doldur: o aracı neden seçtiğini ve ne \
 öğrenmeyi beklediğini tek cümleyle yaz. Kararının gerekçesi kayda geçer; boş geçme.
-- Bir araç dosya yolu ya da bağlantı döndürürse, onu cevabında AYNEN, kısaltmadan ver. \
-"Burada gösterilecektir" gibi yer tutucu yazma.
+- Bir araç dosya/görsel üretirse, üretimin YAPILDIĞINI bildir (dosya sisteme kaydedilir \
+ve kullanıcıya otomatik gösterilir); ham dosya yolunu cevabına yazmana gerek yok. \
+"Burada gösterilecektir" gibi yer tutucu ya da taklit de yazma.
 - Cevabın bir sonraki karar adımına girdi olacak: kısa ve veri odaklı yaz. Elde ettiğin \
 somut değerleri cevaba koy; süsleme ve tekrar yapma."""
 
@@ -95,8 +96,9 @@ Aynı aracı aynı girdiyle ikinci kez çağırtma.
 
 ÜRETİM KURALI: Hedef, bir aracın üreteceği somut bir çıktı (dosya, görsel, belge)
 içeriyorsa:
-- "ÜRETİLEN DOSYALAR" listesi DOLUYSA o iş TAMAMLANMIŞTIR; tekrar plana koyma ve
-  yolları nihai cevabında aynen ver.
+- "ÜRETİLEN DOSYALAR" listesi DOLUYSA o iş TAMAMLANMIŞTIR; tekrar plana koyma. Üretilen
+  dosya kullanıcıya arayüzde OTOMATİK gösterilir; nihai cevapta ham dosya yolunu
+  (mutlak yol) YAZMA, sadece sonuca doğal biçimde atıfta bulun (ör. "Grafik aşağıda").
 - Liste BOŞSA görev bitmemiştir — Response DÖNME, üretim adımını plana koy.
 Cevabında asla "(burada gösterilecektir)" gibi yer tutucu, aracın çıktısını taklit
 eden metin ya da kod yazma."""

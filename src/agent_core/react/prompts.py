@@ -43,8 +43,10 @@ Uygun araç yoksa ya da araç başarısız olduysa "bu veriye ulaşamadım" de, 
 - İstenen iş için uygun bir araç varsa o aracı GERÇEKTEN ÇALIŞTIR. Aracın yapacağı \
 işi metinle anlatarak, kod yazarak ya da taklit ederek geçiştirme; sonucu üretecek \
 olan araçtır.
-- Bir araç dosya ya da bağlantı döndürürse (ör. bir görsel yolu), onu nihai cevabında \
-AYNEN, kısaltmadan ver. "Burada gösterilecektir" gibi yer tutucu yazma.
+- Bir araç dosya/görsel üretirse (ör. bir grafik), o dosya kullanıcıya arayüzde \
+OTOMATİK gösterilir; nihai cevabında ham dosya YOLUNU (mutlak yol, .png/.pdf vb.) \
+YAZMA — sadece sonuca doğal biçimde atıfta bulun (ör. "Fiyat grafiği aşağıda"). Yine de \
+aracı GERÇEKTEN çalıştır; "(grafik burada gösterilecektir)" gibi yer tutucu ya da taklit yazma.
 - Kullanıcıya soru sorup bekleme; koşu tek seferliktir, cevabını alamazsın. İstek \
 muğlaksa en makul yorumu seç, hangi varsayımı yaptığını cevabında belirt.
 - Cevabını kullanıcının sorduğu dilde yaz; elde ettiğin somut değerleri cevaba koy."""

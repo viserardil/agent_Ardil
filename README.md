@@ -9,8 +9,8 @@ adım adım loglar.
 - **Backend:** Python · LangGraph · FastAPI
 - **Frontend:** React 19 · Vite
 - **LLM:** sağlayıcı-bağımsız (OpenAI-uyumlu endpoint; varsayılan `gpt-4.1`)
-- **Ses tanıma (STT):** Groq Whisper (`whisper-large-v3-turbo`)
-- **Sesli çıktı (TTS):** FreyaTTS — 183M param Türkçe TTS, yerel/CUDA (opsiyonel, deneysel)
+- **Ses tanıma (STT):** Groq Whisper (`whisper-large-v3`)
+- **Sesli çıktı (TTS):** Chatterbox Multilingual — Türkçe TTS, yerel/CUDA, izole serviste (opsiyonel)
 
 ---
 
@@ -86,12 +86,12 @@ içini bilmek zorunda değildir.
 
 ```
 AgentArdil/
-├── run_api.py              # API sunucusunu başlatır (uvicorn)
+├── run_api.py              # API sunucusunu başlatır (+ sesli çıktı servisini otomatik)
+├── voice_service.py        # İZOLE Chatterbox TTS mikroservisi (ayrı venv'de koşar)
 ├── main.py                 # CLI: şeritleri/triyajı terminalden çalıştır
-├── test_freya.py           # FreyaTTS duman testi ('Merhaba' -> wav)
 ├── pyproject.toml
 ├── requirements.txt        # ana bağımlılıklar
-├── requirements-voice.txt  # opsiyonel TTS bağımlılıkları (torch+CUDA, voxcpm)
+├── requirements-voice.txt  # opsiyonel TTS (Chatterbox) — AYRI .venv-voice'a kurulur
 ├── .env.example            # ortam değişkenleri şablonu
 │
 ├── src/agent_core/
@@ -102,6 +102,7 @@ AgentArdil/
 │   ├── messages.py         # Mesajlardan araç çağrısı/dosya çıkarımı (ortak)
 │   ├── tracing.py          # Koşu izleme → session log dosyaları
 │   ├── stt.py              # Ses tanıma (Groq Whisper)
+│   ├── tts.py              # Sesli çıktı: metni parçalayıp voice_service'e HTTP ile yollar
 │   ├── api.py              # FastAPI: frontend'in konuştuğu HTTP arayüzü
 │   │
 │   ├── triage/             # Yönlendirme katmanı (schemas/prompts/nodes)
@@ -138,9 +139,10 @@ cp .env.example .env
 > `--link-mode=copy` ile çalıştır (OneDrive sabit bağlantıya izin vermez):
 > `uv pip install --link-mode=copy -e .`
 
-> **Opsiyonel — yerel TTS (FreyaTTS):** Sesli çıktı istiyorsan ek olarak
-> `requirements-voice.txt` kurulur (torch+CUDA ~2.5 GB). Ayrıntı için
-> [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent için gerekmez.
+> **Opsiyonel — yerel TTS (Chatterbox):** Sesli çıktı istiyorsan ayrı bir izole
+> venv (`.venv-voice`) kurulur (torch+CUDA ~2.5 GB). Ana venv'e dokunmaz; kurulum
+> adımları için [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent için
+> gerekmez.
 
 ### 2) Frontend
 
@@ -153,23 +155,46 @@ npm install
 
 ## Çalıştırma
 
-İki ayrı terminal:
+Sistem en fazla **üç süreçten** oluşur. Sesli çıktı istemiyorsan ilk ikisi yeter:
 
-**Terminal 1 — Backend** (proje kökü):
+| Süreç | Port | Ne zaman | Nasıl başlar |
+|-------|:----:|----------|--------------|
+| **Backend API** (uvicorn) | `8000` | Her zaman | `python run_api.py` |
+| **Frontend** (Vite) | `5173` | Her zaman | `Frontend/`'de `npm run dev` |
+| **Sesli çıktı servisi** (Chatterbox) | `8756` | Sadece TTS için | `run_api.py` **otomatik** başlatır (`.venv-voice` varsa) |
+
+### 1) Backend (Terminal 1 — proje kökü)
+
+Önce venv'i aktive et (Windows cmd: `.venv\Scripts\activate`), sonra:
+
 ```bash
 python run_api.py            # http://127.0.0.1:8000
 # geliştirme (dosya değişince yeniden başlar):
 python run_api.py --reload
 ```
 
-**Terminal 2 — Frontend** (`Frontend/`):
+Açılışta `.venv-voice` bulunursa **sesli çıktı servisi otomatik başlatılır** (log:
+`logs/voice_service.log`; model yüklenirken ilk sesli istek biraz bekler).
+Sesli çıktıyı hiç istemiyorsan: `python run_api.py --no-voice`.
+
+### 2) Frontend (Terminal 2 — `Frontend/`)
+
 ```bash
 npm run dev                  # http://localhost:5173
 ```
 
-Tarayıcıda frontend adresini aç. Vite, `/api/*` isteklerini otomatik olarak
-backend'e (`:8000`) yönlendirir (proxy), böylece CORS derdi olmaz ve ajanın
-ürettiği görseller doğrudan çalışır.
+Tarayıcıda **frontend adresini** aç (`http://localhost:5173`) — backend adresini
+(`:8000`) değil. Vite, `/api/*` isteklerini otomatik olarak backend'e yönlendirir
+(proxy), böylece CORS derdi olmaz ve ajanın ürettiği görseller/sesler doğrudan çalışır.
+
+> Kök adres `http://127.0.0.1:8000/` "Not Found" döndürür — bu **normaldir**, API
+> `/api/*` altında yaşar. Sağlık kontrolü: `http://127.0.0.1:8000/api/health`.
+
+### Kullanım
+
+- Alt taraftaki giriş kutusuna yaz ya da 🎤 ile konuş (STT metne çevirir, gönderirsin).
+- 🔊 **Sesli çıktı** anahtarını açarsan cevap seslendirilir (bkz. [Sesli çıktı](#sesli-çıktı-tts)).
+- Sağ alttaki dil seçici STT dilini belirler.
 
 ### CLI (backend'i tek başına denemek için)
 
@@ -253,36 +278,74 @@ mikrofonun sesi duyup duymadığını anında görebilirsin.
 
 ## Sesli çıktı (TTS)
 
-Metni sese çevirmek için **FreyaTTS** (183M parametreli, non-autoregressive Türkçe
-TTS) kullanılır. Model yereldeki GPU'da (CUDA) çalışır; 48 kHz doğal Türkçe ses üretir.
+Metni sese çevirmek için **Chatterbox Multilingual** (Resemble AI) kullanılır —
+Türkçe dahil 23 dil, yerel GPU'da (CUDA) çalışır, ses klonlama destekler.
 
-> **Durum:** Opsiyonel/deneysel. Bağımlılıkları ve model yüklemesi hazır ve
-> `test_freya.py` ile denenebilir; henüz API/arayüze bağlanmadı (yol haritasında).
+Arayüzde giriş kutusunun üstündeki 🔊 **Sesli çıktı** anahtarı açıkken, ajanın
+cevabı **metinle birlikte** seslendirilir. Uzun cevaplar cümle sınırında
+**parçalanır** (parça başına ~token bütçesi, en çok birkaç düzine parça) ve arayüz
+parçaları **sırayla oynatır** — biri biterken diğeri hazırdır (aşamalı oynatma).
 
-FreyaTTS bir pip paketi **değildir** — depo klonlanıp `PYTHONPATH`'e eklenir, pip
-bağımlılıkları ise ayrı bir dosyada tutulur (`torch`+CUDA ~2.5 GB olduğundan ana
-kuruluma dahil edilmez):
+### Neden ayrı bir venv/süreç?
+
+Chatterbox `numpy<2` gerektiriyor; ana AgentArdil venv'i ise numpy 2.x kullanıyor
+(scipy vb. ona göre derli). İkisi tek venv'de **binary olarak barışmıyor**. Bu
+yüzden Chatterbox **kendi izole venv'inde** (`.venv-voice`) **ayrı bir süreç** olarak
+koşar (`voice_service.py`, port `8756`); ana API ona HTTP ile konuşur
+(`src/agent_core/tts.py`). Böylece ağır/çakışan TTS bağımlılıkları ana agent
+sürecinden tamamen izole kalır ve sesli mod kapalıyken hiçbir maliyeti olmaz.
+
+```
+Frontend (🔊)  ──►  API :8000  ──►  tts.py  ──HTTP──►  voice_service :8756
+                                   (parçalama)         (.venv-voice, Chatterbox)
+      ▲                                                        │
+      └──────────────  wav parçaları (sırayla oynatılır)  ◄────┘
+```
+
+### Kurulum (izole venv)
 
 ```bash
-# 1) CUDA'lı torch (RTX serisi -> cu124), OneDrive'da --link-mode=copy şart
+# 1) İzole venv (ana venv'e dokunmaz)
+uv venv .venv-voice --python 3.11
+
+# 2) CUDA'lı torch (RTX serisi -> cu124); OneDrive'da --link-mode=copy şart
 uv pip install --link-mode=copy torch==2.6.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124
+    --index-url https://download.pytorch.org/whl/cu124 --python .venv-voice
 
-# 2) kalan ses bağımlılıkları
-uv pip install --link-mode=copy -r requirements-voice.txt
-
-# 3) FreyaTTS deposu (vendor/ altına klonlanır, gitignore'da)
-git clone --depth 1 https://github.com/freyavoiceai/FreyaTTS vendor/FreyaTTS
+# 3) Chatterbox + sabitler (bkz. requirements-voice.txt)
+uv pip install --link-mode=copy -r requirements-voice.txt --python .venv-voice
 ```
 
-Duman testi (ilk çalıştırmada ağırlıklar Hugging Face'ten iner, sonra cache'ten):
+Model ağırlıkları (`ResembleAI/chatterbox`, ~1-2 GB) ilk çalıştırmada Hugging
+Face'ten iner, sonra cache'ten yüklenir.
+
+> **Not:** `requirements-voice.txt`, `setuptools<81` sabitler — Chatterbox'ın ses
+> filigranı (perth) `pkg_resources` kullanıyor ve setuptools 81+ bunu kaldırdı.
+
+### Çalıştırma
+
+`.venv-voice` mevcutsa `python run_api.py` **servisi otomatik başlatır** (ayrı
+terminal gerekmez). İstersen elle de başlatabilirsin:
 
 ```bash
-python test_freya.py         # kısa bir Türkçe cümleyi logs/tts/merhaba.wav'a sentezler
+.venv-voice/Scripts/python voice_service.py     # http://127.0.0.1:8756
 ```
 
-Model kaynakları: [freyavoice/Freya-TTS](https://huggingface.co/freyavoice/Freya-TTS)
-(ağırlıklar) + `openbmb/VoxCPM2` (ses VAE, `voxcpm` üzerinden otomatik iner).
+### Stabilite / ses ayarları
+
+Ses "dalgalı" gelirse ya da tonu değiştirmek istersen `.env`'den (servisi yeniden
+başlat):
+
+| Değişken | Varsayılan | Etki |
+|----------|:----------:|------|
+| `TTS_TEMPERATURE` | `0.6` | **Düşük = daha stabil/deterministik** (0.4-0.5 dene) |
+| `TTS_EXAGGERATION` | `0.5` | Düşük = daha nötr/sakin ton |
+| `TTS_CFG_WEIGHT` | `0.5` | ~0.3 daha akıcı/hızlı konuşma |
+| `TTS_LANGUAGE` | `tr` | Sentez dili |
+| `TTS_AUDIO_PROMPT` | — | Ses klonlama için kısa referans wav yolu |
+| `VOICE_AUTOSTART` | `1` | `run_api.py` servisi otomatik başlatsın mı |
+
+Model kaynağı: [ResembleAI/chatterbox](https://huggingface.co/ResembleAI/chatterbox).
 
 ---
 
@@ -298,9 +361,14 @@ Tümü `.env`'de (bkz. [`.env.example`](.env.example)):
 | `GROQ_API_KEY` | ✅ | Ses tanıma (STT) için |
 | `TAVILY_API_KEY` | — | `web_search` aracı için |
 | `TRIAGE_MODEL` | — | Triyaj için ayrı/daha hızlı model (boşsa ana model) |
-| `STT_MODEL` | — | Varsayılan `whisper-large-v3-turbo` |
+| `STT_MODEL` | — | Varsayılan `whisper-large-v3` |
 | `STT_LANGUAGE` | — | Ör. `tr` (boşsa otomatik tespit) |
 | `LLM_STRUCTURED_METHOD` | — | Sağlayıcı `json_schema` desteklemiyorsa `function_calling` |
+| `TTS_TEMPERATURE` | — | Sesli çıktı: düşük = daha stabil (varsayılan 0.6) |
+| `VOICE_AUTOSTART` | — | `run_api.py` sesli çıktı servisini otomatik başlatsın mı (varsayılan açık) |
+
+> Sesli çıktının tüm knob'ları (exaggeration, cfg_weight, dil, klonlama, port) için
+> bkz. [Sesli çıktı (TTS)](#sesli-çıktı-tts) ve `.env.example`.
 
 ---
 

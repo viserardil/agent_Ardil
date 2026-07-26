@@ -86,7 +86,7 @@ export function App() {
   }, [currentMessages, thinking, activeId]);
 
   const handleSendMessage = useCallback(
-    async (userText) => {
+    async (userText, voice = false) => {
       if (!activeId || thinking) return;
 
       setError('');
@@ -103,7 +103,7 @@ export function App() {
       setThinking(true);
 
       try {
-        const result = await api.sendMessage(activeId, userText);
+        const result = await api.sendMessage(activeId, userText, voice);
 
         // İyimser mesajı sunucunun döndürdüğü gerçek kayıtlarla değiştir.
         setMessagesMap((prev) => ({

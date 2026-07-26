@@ -1,40 +1,35 @@
 # ============================================================================
-# AgentArdil — SES / TTS bağımlılıkları (opsiyonel, ayrı kurulur)
+# AgentArdil — SESLİ ÇIKTI (TTS) bağımlılıkları  →  AYRI/İZOLE venv'e kurulur
 # ============================================================================
-# Bunlar ana requirements.txt'ten AYRI tutulur: torch+CUDA ~2.5 GB ve yalnızca
-# yerel TTS (FreyaTTS) çalıştıracaklara gerekli. STT (Groq Whisper) bunlara
-# ihtiyaç duymaz.
+# Motor: Chatterbox Multilingual (Resemble AI) — Türkçe dahil 23 dil, ses klonlama.
 #
-# Kurulum (OneDrive'da hardlink hatası olmaması için --link-mode=copy şart):
+# NEDEN AYRI VENV? Chatterbox `numpy<2` dayatıyor; ana AgentArdil venv'i ise
+# numpy 2.x kullanıyor (scipy vb. ona göre derli). İkisi tek venv'de barışmaz
+# (binary uyumsuzluk). Bu yüzden Chatterbox kendi venv'inde (.venv-voice) AYRI
+# BİR SÜREÇ (voice_service.py) olarak koşar; ana API ona HTTP ile konuşur.
+# run_api.py bu servisi .venv-voice varsa otomatik başlatır.
 #
-#   1) CUDA'lı torch (RTX serisi için cu124 index'inden):
+# KURULUM (OneDrive'da hardlink hatası için --link-mode=copy şart):
+#
+#   1) İzole venv:
+#      uv venv .venv-voice --python 3.11
+#
+#   2) CUDA'lı torch (RTX serisi -> cu124):
 #      uv pip install --link-mode=copy torch==2.6.0 torchaudio==2.6.0 \
-#          --index-url https://download.pytorch.org/whl/cu124
+#          --index-url https://download.pytorch.org/whl/cu124 \
+#          --python .venv-voice
+#      (ya da: set VIRTUAL_ENV=.venv-voice  &&  uv pip install ...)
 #
-#   2) Kalan ses bağımlılıkları (bu dosya):
-#      uv pip install --link-mode=copy -r requirements-voice.txt
+#   3) Chatterbox + bu dosyadaki sabitler:
+#      uv pip install --link-mode=copy -r requirements-voice.txt --python .venv-voice
 #
-#   3) FreyaTTS bir pip paketi DEĞİL — klonlanıp PYTHONPATH'e eklenir:
-#      git clone --depth 1 https://github.com/freyavoiceai/FreyaTTS vendor/FreyaTTS
-#      export PYTHONPATH=vendor/FreyaTTS   (Windows: set PYTHONPATH=vendor\FreyaTTS)
-#      Model ağırlıkları: https://huggingface.co/freyavoice/Freya-TTS
-#
-# NOT: torchaudio, torch ile AYNI sürüm/derleme olmalı (2.6.0+cu124). voxcpm
-# uyumsuz bir torchaudio (2.11) çekmeye çalışırsa yukarıdaki komutla sabitleyin.
+# Model ağırlıkları ilk çalıştırmada Hugging Face'ten iner (ResembleAI/chatterbox,
+# ~1-2 GB), sonra cache'ten yüklenir.
 # ============================================================================
 
-# --- torch ailesi (CUDA cu124) — 1. adımda ayrıca kurulur, burada da sabitlenir
-torch==2.6.0
-torchaudio==2.6.0
+# Ana TTS motoru (numpy<2, transformers, diffusers, perth, s3tokenizer ... çeker)
+chatterbox-tts==0.1.7
 
-# --- FreyaTTS'in doğrudan bağımlılıkları
-numpy==2.4.6
-einops==0.8.2
-soundfile==0.14.0
-librosa==0.11.0
-huggingface-hub==1.24.0
-safetensors==0.8.0
-
-# --- Ses VAE'si (FreyaTTS vae.py -> voxcpm.modules.audiovae) — kendi ağacını çeker
-#     (transformers, torchcodec, funasr, gradio, ... voxcpm üzerinden gelir)
-voxcpm==2.0.3
+# perth (ses filigranı) `pkg_resources` kullanıyor; setuptools 81+ bunu KALDIRDI.
+# Watermarker'ın yüklenebilmesi için pkg_resources içeren bir sürüm sabitlenir.
+setuptools<81

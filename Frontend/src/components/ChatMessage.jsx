@@ -1,13 +1,86 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Activity,
   LayoutGrid,
   Megaphone,
   CreditCard,
   Copy,
-  Check
+  Check,
+  Play,
+  Pause,
+  Volume2
 } from 'lucide-react';
 import { Logo } from './Logo';
+
+// Sesli çıktı oynatıcısı: backend cevabı parça parça (aşamalı) döndürür
+// (run.audio_urls). Parçalar SIRAYLA çalınır — biri bitince otomatik diğerine
+// geçilir; böylece uzun cevaplarda ilk parça hazır olur olmaz dinlenmeye başlanır.
+// Tarayıcı otomatik oynatmayı engellerse kullanıcı oynat düğmesiyle başlatır.
+function AudioSequence({ urls }) {
+  const [idx, setIdx] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const audioRef = useRef(null);
+
+  // Aktif parça değişince (veya ilk gelişte) çalmayı dene. Otomatik oynatma
+  // engellenirse sessizce oynat düğmesine düşülür.
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+  }, [idx]);
+
+  const handleEnded = () => {
+    if (idx < urls.length - 1) setIdx(idx + 1); // sıradaki parçaya geç
+    else setPlaying(false); // hepsi bitti
+  };
+
+  const toggle = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (playing) {
+      el.pause();
+      setPlaying(false);
+    } else {
+      // en sondayken ve bitmişse baştan başlat
+      if (idx === urls.length - 1 && el.ended) setIdx(0);
+      el.play().then(() => setPlaying(true)).catch(() => {});
+    }
+  };
+
+  return (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 8, marginTop: 12,
+        padding: '6px 10px', borderRadius: 999, width: 'fit-content',
+        background: '#f0fdf4', border: '1px solid #bbf7d0', color: '#16a34a'
+      }}
+    >
+      <button
+        type="button"
+        onClick={toggle}
+        title={playing ? 'Duraklat' : 'Oynat'}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          width: 26, height: 26, borderRadius: '50%', cursor: 'pointer',
+          border: 'none', background: '#22c55e', color: '#fff'
+        }}
+      >
+        {playing ? <Pause size={14} /> : <Play size={14} />}
+      </button>
+      <Volume2 size={14} />
+      <span style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+        Sesli cevap{urls.length > 1 ? ` · ${idx + 1}/${urls.length}` : ''}
+      </span>
+      <audio
+        ref={audioRef}
+        src={urls[idx]}
+        onEnded={handleEnded}
+        preload="auto"
+        style={{ display: 'none' }}
+      />
+    </div>
+  );
+}
 
 // Koşu özeti rozetleri: hangi şerit çalıştı, ne kadar sürdü, kaç token gitti.
 // Ara sürecin tamamı sunucudaki log dosyasında; burada sadece rakamlar var.
@@ -70,6 +143,8 @@ export function ChatMessage({ message }) {
   // Ajanın ürettiği görseller (grafik vb.). Backend bunları /api/artifacts/... altında
   // servis ediyor; Vite proxy sayesinde göreli yol doğrudan çalışıyor.
   const artifactUrls = message.run?.artifact_urls || [];
+  // Sesli çıktı modunda üretilen wav parçaları (varsa) — sırayla oynatılır.
+  const audioUrls = message.run?.audio_urls || [];
 
   return (
     <div className="message-row ai animate-fade-in">
@@ -109,6 +184,9 @@ export function ChatMessage({ message }) {
             {message.text}
           </div>
         )}
+
+        {/* Sesli çıktı: cevap parçaları sırayla oynatılır */}
+        {audioUrls.length > 0 && <AudioSequence urls={audioUrls} />}
 
         {/* Ajanın ürettiği görseller */}
         {artifactUrls.map((url) => (

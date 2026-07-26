@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Paperclip, Mic, Square, Loader2, ArrowUp, Languages } from 'lucide-react';
+import { Paperclip, Mic, Square, Loader2, ArrowUp, Languages, Volume2, VolumeX } from 'lucide-react';
 import { api } from '../api';
 
 // Ses tanıma dilleri. "auto" = Whisper kendi tespit eder. Yeni dil eklemek için
@@ -45,6 +45,21 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
     }
   };
 
+  // Sesli çıktı modu: açıkken cevap Chatterbox ile seslendirilir (parça parça).
+  // Tercih localStorage'da tutulur. Kapalıyken backend'de sesli çıktı hiç çalışmaz.
+  const [voiceOut, setVoiceOut] = useState(() => localStorage.getItem('ardil_tts_on') === '1');
+  const toggleVoiceOut = () => {
+    setVoiceOut((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('ardil_tts_on', next ? '1' : '0');
+      } catch {
+        // localStorage kapalıysa sessiz geç
+      }
+      return next;
+    });
+  };
+
   const recorderRef = useRef(null);
   const chunksRef = useRef([]);
   const audioCtxRef = useRef(null);
@@ -63,7 +78,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!text.trim() || disabled) return;
-    onSendMessage(text);
+    onSendMessage(text, voiceOut);
     setText('');
   };
 
@@ -76,7 +91,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
 
   const handleChipClick = (chipText) => {
     if (disabled) return;
-    onSendMessage(chipText);
+    onSendMessage(chipText, voiceOut);
   };
 
   // --- Sesli giriş -----------------------------------------------------------
@@ -245,6 +260,24 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
               ))}
             </select>
           </label>
+
+          {/* Sesli çıktı anahtarı: açıkken cevap Chatterbox ile seslendirilir */}
+          <button
+            type="button"
+            onClick={toggleVoiceOut}
+            title={voiceOut ? 'Sesli çıktı açık — kapatmak için tıkla' : 'Sesli çıktı kapalı — açmak için tıkla'}
+            aria-pressed={voiceOut}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+              padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+              border: `1px solid ${voiceOut ? '#22c55e' : '#e2e8f0'}`,
+              background: voiceOut ? '#f0fdf4' : '#fff',
+              color: voiceOut ? '#16a34a' : '#64748b'
+            }}
+          >
+            {voiceOut ? <Volume2 size={14} /> : <VolumeX size={14} />}
+            <span>Sesli çıktı</span>
+          </button>
 
           {devices.length > 1 && (
             <select

@@ -30,6 +30,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = PROJECT_ROOT / "logs" / "sessions"
 # plot_chart / visualize_data üretilen görselleri buraya yazıyor.
 CHART_DIR = PROJECT_ROOT / "src" / "scratch" / "charts"
+# Sesli çıktı modunda Chatterbox'ın ürettiği wav parçaları buraya yazılır.
+AUDIO_DIR = PROJECT_ROOT / "src" / "scratch" / "tts"
 
 
 # --- Bellek içi depo ---------------------------------------------------------
@@ -95,6 +97,9 @@ store = _Store()
 
 class SendMessageRequest(BaseModel):
     text: str = Field(min_length=1)
+    # Sesli çıktı modu: açıksa nihai cevap Chatterbox ile seslendirilip parça parça
+    # döner (opsiyonel). Kapalıyken sesli çıktı servisine hiç istek gitmez.
+    voice: bool = False
 
 
 class SendMessageResponse(BaseModel):
@@ -193,6 +198,21 @@ def send_message(session_id: str, request: SendMessageRequest) -> SendMessageRes
     summary["artifact_urls"] = [
         f"/api/artifacts/{Path(path).name}" for path in summary.get("artifacts", [])
     ]
+
+    # Sesli çıktı: istenmişse cevabı Chatterbox ile seslendir (parça parça, sırayla).
+    # Metin ile BİRLİKTE döner. Sentez, izole sesli çıktı servisine (voice_service.py)
+    # HTTP ile yaptırılır. Servis kapalı/çökerse metin cevabı bozulmasın diye hata
+    # yalnızca loglanır; audio_urls boş kalır.
+    summary["audio_urls"] = []
+    if request.voice and answer and not summary.get("error"):
+        try:
+            from agent_core import tts
+
+            paths = tts.synthesize(answer, AUDIO_DIR, summary["run_id"])
+            summary["audio_urls"] = [f"/api/audio/{Path(p).name}" for p in paths]
+        except Exception as exc:  # noqa: BLE001 — ses opsiyonel, metin akışı korunur
+            print(f"[TTS] seslendirme başarısız: {type(exc).__name__}: {exc}")
+
     store.runs[summary["run_id"]] = {"summary": summary, "events": tracer.events}
 
     ai_message = store.add_message(session_id, "ai", answer, run=summary)
@@ -262,3 +282,17 @@ def get_artifact(filename: str):
     if not str(target).startswith(str(CHART_DIR.resolve())) or not target.is_file():
         raise HTTPException(status_code=404, detail="Dosya bulunamadı")
     return FileResponse(target)
+
+
+@app.get("/api/audio/{filename}")
+def get_audio(filename: str):
+    """Sesli çıktı modunda üretilen wav parçasını servis eder.
+
+    Görsellerle aynı güvenlik: yalnızca dosya ADI kabul edilir, sabit dizinle
+    birleştirilip çözümlenir; dizin dışına çıkan yol reddedilir (path traversal'a
+    kapalı).
+    """
+    target = (AUDIO_DIR / filename).resolve()
+    if not str(target).startswith(str(AUDIO_DIR.resolve())) or not target.is_file():
+        raise HTTPException(status_code=404, detail="Ses bulunamadı")
+    return FileResponse(target, media_type="audio/wav")

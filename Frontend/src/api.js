@@ -54,10 +54,12 @@ export const api = {
   listSessions: () => request('/sessions'),
   createSession: () => request('/sessions', { method: 'POST' }),
   getMessages: (sessionId) => request(`/sessions/${sessionId}/messages`),
-  sendMessage: (sessionId, text) =>
+  // voice=true iken backend cevabı Chatterbox ile seslendirip parça parça döner
+  // (ai_message.run.audio_urls). Kapalıyken sesli çıktı hiç devreye girmez.
+  sendMessage: (sessionId, text, voice = false) =>
     request(`/sessions/${sessionId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ text })
+      body: JSON.stringify({ text, voice })
     }),
   transcribe
 };

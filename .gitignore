@@ -8,12 +8,6 @@
 *.pem
 
 # ============================================================================
-# Vendor'lanan dış repolar (klonla kurulur, pip paketi değil) — commit'lenmez
-# ============================================================================
-# FreyaTTS (Türkçe TTS): git clone https://github.com/freyavoiceai/FreyaTTS
-vendor/
-
-# ============================================================================
 # Çalışma zamanı üretilenleri (kod değil, çıktı)
 # ============================================================================
 # koşu izleme logları + kullanıcı ses kayıtları (logs/stt)
@@ -26,6 +20,7 @@ src/scratch/
 # Python
 # ============================================================================
 .venv/
+.venv-voice/
 venv/
 env/
 __pycache__/

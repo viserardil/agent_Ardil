@@ -333,17 +333,37 @@ terminal gerekmez). İstersen elle de başlatabilirsin:
 
 ### Stabilite / ses ayarları
 
-Ses "dalgalı" gelirse ya da tonu değiştirmek istersen `.env`'den (servisi yeniden
-başlat):
+Sesin tonunu ya da kalitesini ayarlamak istersen `.env`'den (değişince servisi
+yeniden başlat):
 
 | Değişken | Varsayılan | Etki |
 |----------|:----------:|------|
-| `TTS_TEMPERATURE` | `0.6` | **Düşük = daha stabil/deterministik** (0.4-0.5 dene) |
+| `TTS_TEMPERATURE` | `0.5` | Çok düşük (0.2) run-on/junk üretir, yüksek dalgalandırır — 0.5 dengeli |
+| `TTS_CFG_WEIGHT` | `0.7` | **Yüksek = metne daha sadık, cümle sonu junk'ı azaltır** (hâlâ varsa 1.0) |
 | `TTS_EXAGGERATION` | `0.5` | Düşük = daha nötr/sakin ton |
-| `TTS_CFG_WEIGHT` | `0.5` | ~0.3 daha akıcı/hızlı konuşma |
 | `TTS_LANGUAGE` | `tr` | Sentez dili |
 | `TTS_AUDIO_PROMPT` | — | Ses klonlama için kısa referans wav yolu |
 | `VOICE_AUTOSTART` | `1` | `run_api.py` servisi otomatik başlatsın mı |
+
+#### Ayarlama gözlemleri (deneyerek bulundu)
+
+Chatterbox **otoregresif** bir model; kalite büyük ölçüde üretim parametrelerine
+bağlı. Türkçe'de yaşadıklarımız:
+
+- **Cümle sonu "junk" (rambling):** Model bazen cümle bittikten sonra kısa bir
+  gürültü/mırıldanma ekliyor. Asıl sebebi **çok düşük temperature** (ör. 0.2):
+  otoregresif üretim fazla açgözlü olunca run-on yapıyor. **0.5** bunu belirgin
+  azalttı. Ek olarak **`cfg_weight`'i 0.7'ye çıkarmak** (metne sadakat) junk'ı
+  daha da düşürdü. Bu, Freya'daki (flow-matching) mantığın **tersi** — orada daha
+  fazla adım stabilize ediyordu; burada aşırı düşük temperature *bozuyor*.
+- **Parça-sınırı artefaktları:** Parçalar sırayla çalınırken dikişte klik/kuyruk
+  duyulabiliyordu. `voice_service.py` her parçaya **baş/son sessizlik kırpma +
+  kısa fade in/out** uyguluyor; ayrıca konuşmadan sonra **boşlukla ayrılmış kısa
+  junk segmenti** kesiliyor (`TTS_TRIM_TAIL`). Uzun/rambling tipi junk'ı ise
+  DSP güvenle kesemiyor (virgül duraklamasıyla karışıyor) — orada çözüm yukarıdaki
+  üretim parametreleri.
+- Junk **stokastik**: bazı üretimlerde hiç yok, bazılarında var. Parametreler
+  sıklığını düşürür, %100 sıfırlamaz.
 
 Model kaynağı: [ResembleAI/chatterbox](https://huggingface.co/ResembleAI/chatterbox).
 

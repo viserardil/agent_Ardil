@@ -35,10 +35,12 @@ from pydantic import BaseModel
 
 # Chatterbox stabilite/ses knob'ları (env ile ayarlanır).
 _LANG = os.getenv("TTS_LANGUAGE", "tr")
-# temperature: DÜŞÜK = daha deterministik/stabil (dalgalanma azalır). Varsayılan 0.8.
-_TEMPERATURE = float(os.getenv("TTS_TEMPERATURE", "0.6"))
+# temperature: ÇOK düşük (0.2 gibi) otoregresif modelde run-on/kuyruk üretiyor,
+# çok yüksek dalgalandırıyor; 0.5 dengeli bulundu.
+_TEMPERATURE = float(os.getenv("TTS_TEMPERATURE", "0.5"))
 _EXAGGERATION = float(os.getenv("TTS_EXAGGERATION", "0.5"))  # düşük = daha nötr/stabil
-_CFG_WEIGHT = float(os.getenv("TTS_CFG_WEIGHT", "0.5"))      # ~0.3 daha hızlı/akıcı
+# cfg_weight: YÜKSEK = modele metne daha sadık, cümle sonundaki rambling/junk azalır.
+_CFG_WEIGHT = float(os.getenv("TTS_CFG_WEIGHT", "0.7"))
 _REPETITION_PENALTY = float(os.getenv("TTS_REPETITION_PENALTY", "2.0"))
 # İsteğe bağlı ses klonlama referansı (kısa bir wav yolu). Boşsa varsayılan ses.
 _AUDIO_PROMPT = os.getenv("TTS_AUDIO_PROMPT", "").strip() or None

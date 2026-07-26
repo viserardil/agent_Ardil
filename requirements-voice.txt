@@ -33,3 +33,6 @@ chatterbox-tts==0.1.7
 # perth (ses filigranı) `pkg_resources` kullanıyor; setuptools 81+ bunu KALDIRDI.
 # Watermarker'ın yüklenebilmesi için pkg_resources içeren bir sürüm sabitlenir.
 setuptools<81
+
+# voice_service.py .env'deki TTS_* ayarlarını (temperature, fade, dil...) okur.
+python-dotenv>=1.0.0

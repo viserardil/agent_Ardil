@@ -9,7 +9,8 @@ adım adım loglar.
 - **Backend:** Python · LangGraph · FastAPI
 - **Frontend:** React 19 · Vite
 - **LLM:** sağlayıcı-bağımsız (OpenAI-uyumlu endpoint; varsayılan `gpt-4.1`)
-- **Ses tanıma:** Groq Whisper (`whisper-large-v3-turbo`)
+- **Ses tanıma (STT):** Groq Whisper (`whisper-large-v3-turbo`)
+- **Sesli çıktı (TTS):** FreyaTTS — 183M param Türkçe TTS, yerel/CUDA (opsiyonel, deneysel)
 
 ---
 
@@ -23,6 +24,7 @@ adım adım loglar.
 - [Nasıl çalışır?](#nasıl-çalışır)
 - [Loglama ve gözlemlenebilirlik](#loglama-ve-gözlemlenebilirlik)
 - [Ses tanıma (STT)](#ses-tanıma-stt)
+- [Sesli çıktı (TTS)](#sesli-çıktı-tts)
 - [Ortam değişkenleri](#ortam-değişkenleri)
 - [Tasarım kararları](#tasarım-kararları)
 
@@ -86,7 +88,10 @@ içini bilmek zorunda değildir.
 AgentArdil/
 ├── run_api.py              # API sunucusunu başlatır (uvicorn)
 ├── main.py                 # CLI: şeritleri/triyajı terminalden çalıştır
+├── test_freya.py           # FreyaTTS duman testi ('Merhaba' -> wav)
 ├── pyproject.toml
+├── requirements.txt        # ana bağımlılıklar
+├── requirements-voice.txt  # opsiyonel TTS bağımlılıkları (torch+CUDA, voxcpm)
 ├── .env.example            # ortam değişkenleri şablonu
 │
 ├── src/agent_core/
@@ -132,6 +137,10 @@ cp .env.example .env
 > **Not (Windows/OneDrive):** Proje OneDrive altındaysa `uv` komutlarını
 > `--link-mode=copy` ile çalıştır (OneDrive sabit bağlantıya izin vermez):
 > `uv pip install --link-mode=copy -e .`
+
+> **Opsiyonel — yerel TTS (FreyaTTS):** Sesli çıktı istiyorsan ek olarak
+> `requirements-voice.txt` kurulur (torch+CUDA ~2.5 GB). Ayrıntı için
+> [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent için gerekmez.
 
 ### 2) Frontend
 
@@ -239,6 +248,41 @@ kutusuna yazılır** (otomatik gönderilmez) — gözden geçirip gönderirsin.
 Giriş kutusunun üstünde bir **cihaz seçici** ve **canlı seviye göstergesi** vardır:
 birden çok mikrofon varsa (ör. dahili + Bluetooth kulaklık) doğru olanı seçebilir ve
 mikrofonun sesi duyup duymadığını anında görebilirsin.
+
+---
+
+## Sesli çıktı (TTS)
+
+Metni sese çevirmek için **FreyaTTS** (183M parametreli, non-autoregressive Türkçe
+TTS) kullanılır. Model yereldeki GPU'da (CUDA) çalışır; 48 kHz doğal Türkçe ses üretir.
+
+> **Durum:** Opsiyonel/deneysel. Bağımlılıkları ve model yüklemesi hazır ve
+> `test_freya.py` ile denenebilir; henüz API/arayüze bağlanmadı (yol haritasında).
+
+FreyaTTS bir pip paketi **değildir** — depo klonlanıp `PYTHONPATH`'e eklenir, pip
+bağımlılıkları ise ayrı bir dosyada tutulur (`torch`+CUDA ~2.5 GB olduğundan ana
+kuruluma dahil edilmez):
+
+```bash
+# 1) CUDA'lı torch (RTX serisi -> cu124), OneDrive'da --link-mode=copy şart
+uv pip install --link-mode=copy torch==2.6.0 torchaudio==2.6.0 \
+    --index-url https://download.pytorch.org/whl/cu124
+
+# 2) kalan ses bağımlılıkları
+uv pip install --link-mode=copy -r requirements-voice.txt
+
+# 3) FreyaTTS deposu (vendor/ altına klonlanır, gitignore'da)
+git clone --depth 1 https://github.com/freyavoiceai/FreyaTTS vendor/FreyaTTS
+```
+
+Duman testi (ilk çalıştırmada ağırlıklar Hugging Face'ten iner, sonra cache'ten):
+
+```bash
+python test_freya.py         # kısa bir Türkçe cümleyi logs/tts/merhaba.wav'a sentezler
+```
+
+Model kaynakları: [freyavoice/Freya-TTS](https://huggingface.co/freyavoice/Freya-TTS)
+(ağırlıklar) + `openbmb/VoxCPM2` (ses VAE, `voxcpm` üzerinden otomatik iner).
 
 ---
 

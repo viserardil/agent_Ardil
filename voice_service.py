@@ -51,6 +51,13 @@ _FADE_MS = float(os.getenv("TTS_FADE_MS", "12"))              # 0 = fade kapalı
 _TRIM_SILENCE = os.getenv("TTS_TRIM_SILENCE", "1").lower() in ("1", "true", "yes")
 _SILENCE_THRESH = float(os.getenv("TTS_SILENCE_THRESH", "0.015"))  # mutlak genlik eşiği
 _KEEP_PAD_MS = float(os.getenv("TTS_KEEP_PAD_MS", "30"))      # kırpmada bırakılan pay
+# Kuyruk hallüsinasyonu: Chatterbox konuşma bittikten sonra bir BOŞLUK bırakıp kısa
+# bir gürültü/nefes patlaması üretebiliyor. Bu, sessizlik-kırpmayla YAKALANMAZ
+# (gürültü eşiğin üstünde). Sondaki boşluktan (>= gap) sonra gelen KISA (<= max_tail)
+# segment(ler)i tamamen keseriz. Gerçek son cümle boşluktan önce bittiği için korunur.
+_TRIM_TAIL = os.getenv("TTS_TRIM_TAIL", "1").lower() in ("1", "true", "yes")
+_TAIL_GAP_MS = float(os.getenv("TTS_TAIL_GAP_MS", "180"))    # segmentleri ayıran boşluk
+_MAX_TAIL_MS = float(os.getenv("TTS_MAX_TAIL_MS", "450"))    # bu süreden kısa son segment = junk
 
 app = FastAPI(title="AgentArdil Voice Service (Chatterbox)")
 _model = None
@@ -67,13 +74,43 @@ def _get_model():
     return _model
 
 
-def _postprocess(wav: "torch.Tensor", sr: int) -> "torch.Tensor":
-    """Parça-sınırı artefaktlarını azalt: baş/son sessizliği kırp + fade in/out.
+def _voiced_segments(voiced: List[bool], gap_frames: int) -> List[tuple]:
+    """Sesli (voiced) kare dizisinden segmentleri çıkarır.
 
-    - Sessizlik kırpma: baştaki/sondaki ölü havayı ve boşluğu atar (dikişteki
-      duraklamayı ve sonraki parçanın ani girişini kısaltır).
-    - Fade in/out: parçanın iki ucundaki klik/onset ve kalan kuyruk sesini
-      yumuşatır. Kısa tutulur (~12 ms) ki konuşmayı kesmesin.
+    Bir segment, arası ``gap_frames``'ten kısa boşluklarla bağlı sesli karelerdir;
+    boşluk >= gap_frames olunca segment biter. (start, end) kare indeksleri döner.
+    """
+    segs: List[tuple] = []
+    i, nf = 0, len(voiced)
+    while i < nf:
+        if not voiced[i]:
+            i += 1
+            continue
+        start = i
+        last_voiced = i
+        silence = 0
+        j = i
+        while j < nf:
+            if voiced[j]:
+                last_voiced = j
+                silence = 0
+            else:
+                silence += 1
+                if silence >= gap_frames:
+                    break
+            j += 1
+        segs.append((start, last_voiced + 1))
+        i = j + 1
+    return segs
+
+
+def _postprocess(wav: "torch.Tensor", sr: int) -> "torch.Tensor":
+    """Parça-sınırı artefaktlarını azalt: kuyruk hallüsinasyonunu kes + kırp + fade.
+
+    - Kuyruk kesme: konuşma bittikten sonra bir BOŞLUKLA ayrılan kısa gürültü/
+      nefes patlamasını (Chatterbox hallüsinasyonu) tamamen atar.
+    - Sessizlik kırpma: baştaki/sondaki ölü havayı ve boşluğu atar.
+    - Fade in/out: iki uçtaki klik/onset ve kalan kuyruğu yumuşatır (~12 ms).
     Çıktı her zaman [1, N] şeklindedir.
     """
     if wav.dim() == 1:
@@ -83,12 +120,21 @@ def _postprocess(wav: "torch.Tensor", sr: int) -> "torch.Tensor":
     if n == 0:
         return mono.unsqueeze(0)
 
-    if _TRIM_SILENCE:
-        above = (mono.abs() > _SILENCE_THRESH).nonzero(as_tuple=False).flatten()
-        if above.numel() > 0:
+    frame = max(1, int(sr * 0.010))  # 10 ms kare
+    nf = n // frame
+    if nf >= 2 and (_TRIM_SILENCE or _TRIM_TAIL):
+        energy = mono[: nf * frame].abs().reshape(nf, frame).amax(dim=1)
+        voiced = (energy > _SILENCE_THRESH).tolist()
+        segs = _voiced_segments(voiced, gap_frames=max(1, int(_TAIL_GAP_MS / 10)))
+        if segs:
+            # Sondaki KISA segment(ler)i (boşlukla ayrılmış junk) at.
+            if _TRIM_TAIL:
+                max_tail = max(1, int(_MAX_TAIL_MS / 10))
+                while len(segs) >= 2 and (segs[-1][1] - segs[-1][0]) <= max_tail:
+                    segs.pop()
             pad = int(sr * _KEEP_PAD_MS / 1000)
-            start = max(0, int(above[0].item()) - pad)
-            end = min(n, int(above[-1].item()) + 1 + pad)
+            start = max(0, segs[0][0] * frame - pad) if _TRIM_SILENCE else 0
+            end = min(n, segs[-1][1] * frame + pad)
             mono = mono[start:end].clone()
 
     f = min(int(sr * _FADE_MS / 1000), mono.numel() // 2)

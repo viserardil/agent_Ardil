@@ -20,18 +20,29 @@ function AudioSequence({ urls }) {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const audioRef = useRef(null);
+  // Sonraki parçaya OTOMATİK geçiş yalnızca kullanıcının başlattığı bir sıra
+  // ilerlemesinde olsun. Mount/sayfa yenilemede otomatik çalma OLMAZ.
+  const autoAdvance = useRef(false);
 
-  // Aktif parça değişince (veya ilk gelişte) çalmayı dene. Otomatik oynatma
-  // engellenirse sessizce oynat düğmesine düşülür.
+  // idx değişince: sadece kullanıcı zaten çalıyorken (sıra ilerlemesi) sonraki
+  // parçayı çal. İlk render'da ve sayfa yeniden açıldığında OTOMATİK ÇALMAZ —
+  // böylece tüm sesli mesajlar bir anda başlamaz; kullanıcı basınca başlar.
   useEffect(() => {
+    if (!autoAdvance.current) return;
+    autoAdvance.current = false;
     const el = audioRef.current;
     if (!el) return;
+    el.currentTime = 0;
     el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   }, [idx]);
 
   const handleEnded = () => {
-    if (idx < urls.length - 1) setIdx(idx + 1); // sıradaki parçaya geç
-    else setPlaying(false); // hepsi bitti
+    if (idx < urls.length - 1) {
+      autoAdvance.current = true; // kullanıcı çalıyordu; sıradaki parçaya geç
+      setIdx(idx + 1);
+    } else {
+      setPlaying(false); // hepsi bitti
+    }
   };
 
   const toggle = () => {
@@ -40,11 +51,18 @@ function AudioSequence({ urls }) {
     if (playing) {
       el.pause();
       setPlaying(false);
-    } else {
-      // en sondayken ve bitmişse baştan başlat
-      if (idx === urls.length - 1 && el.ended) setIdx(0);
-      el.play().then(() => setPlaying(true)).catch(() => {});
+      return;
     }
+    // Sıra sonundayken ve bitmişse baştan başlat
+    if (idx === urls.length - 1 && el.ended) {
+      if (urls.length > 1) {
+        autoAdvance.current = true;
+        setIdx(0);
+        return;
+      }
+      el.currentTime = 0;
+    }
+    el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
   };
 
   return (

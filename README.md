@@ -321,11 +321,15 @@ onayı `COQUI_TOS_AGREED=1` olarak `tts.py` içinde otomatik ayarlanır.
 | `TTS_LANGUAGE` | `tr` | Sentez dili (17 dil) |
 | `TTS_SPEAKER` | `Claribel Dervla` | Yerleşik konuşmacı (58 seçenek: Daisy Studious, Gracie Wise…) |
 | `TTS_SPEAKER_WAV` | — | Ses **klonlama** için kısa referans wav yolu (verilirse `TTS_SPEAKER` yok sayılır) |
+| `TTS_SPEED` | `1.1` | Konuşma temposu; >1 daha hızlı (çok yüksek doğallığı bozar) |
+| `TTS_TEMPERATURE` | `0.75` | GPT örnekleme sıcaklığı (düşük=monoton/kararlı, yüksek=ifadeli) |
+| `TTS_REPETITION_PENALTY` | `10.0` | Tekrar/kekeleme cezası (yüksek=daha az tekrar) |
 | `TTS_CHUNK_TOKENS` | `120` | Parça başına ~token bütçesi |
 | `TTS_MAX_CHUNKS` | `24` | Toplam parça tavanı (aşamalı oynatma) |
 
-Parça-sınırı klik/sessizliği için her parçaya hafif **baş/son sessizlik kırpma +
-fade in/out** uygulanır (`TTS_FADE_MS`, `TTS_TRIM_SILENCE`).
+İleri örnekleme ayarları da var: `TTS_TOP_K` (50), `TTS_TOP_P` (0.85),
+`TTS_LENGTH_PENALTY` (1.0). Parça-sınırı klik/sessizliği için her parçaya hafif
+**baş/son sessizlik kırpma + fade in/out** uygulanır (`TTS_FADE_MS`, `TTS_TRIM_SILENCE`).
 
 > **Neden Chatterbox değil?** Önce Chatterbox denendi ama Türkçe'de otoregresif
 > yapısı cümle sonlarında "junk/rambling" üretiyordu ve `numpy<2` gereksinimi ayrı

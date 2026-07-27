@@ -580,9 +580,21 @@ def visualize_data(spec):
     return f"Grafik kaydedildi ({kind}, {len(yv)} nokta): {path}"
 
 
-def render_tool_descriptions():
-    """Sistem prompt'una gömmek için araç listesini metne çevirir."""
-    return "\n".join(f"- {name}: {info['description']}" for name, info in TOOLS.items())
+def render_tool_descriptions(brief: bool = False):
+    """Sistem prompt'una gömmek için araç listesini metne çevirir.
+
+    brief=True (triaj için): açıklamanın yalnızca "ne yapar" kısmı bırakılır,
+    "Girdi:" sonrası (kullanım/girdi formatı) atılır. Triaj yalnızca ARAÇ SEÇİMİ
+    yapar; girdi formatı alt katmanın (executor/react) işidir, o yüzden o detayları
+    her mesajda triaj promptunda taşımak gereksiz token yüküdür (~%40 katalog).
+    """
+    lines = []
+    for name, info in TOOLS.items():
+        desc = info["description"]
+        if brief:
+            desc = desc.split(" Girdi:", 1)[0].strip()
+        lines.append(f"- {name}: {desc}")
+    return "\n".join(lines)
 
 
 def run_tool(name, tool_input):

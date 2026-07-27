@@ -39,7 +39,8 @@ def triage_step(state, config=None) -> dict:
             # Geçmiş turlar + güncel mesaj birlikte verilir: "onu MSFT için de yap"
             # gibi terse bir devam isteği ancak önceki konuşmayla doğru sınıflanır.
             "messages": to_messages(state.get("history"), state["input"]),
-            "tool_catalog": render_tool_descriptions(),
+            # Triaj araç SEÇER; girdi formatına gerek yok -> kısa katalog (token tasarrufu).
+            "tool_catalog": render_tool_descriptions(brief=True),
         },
         config=config,
     )

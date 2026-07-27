@@ -24,3 +24,20 @@ requests>=2.31.0          # web_search (Tavily REST)
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9   # /api/transcribe dosya yüklemesi
+
+# ============================================================================
+# Sesli çıktı (TTS) — OPSİYONEL. Coqui XTTS-v2 (yerel, CUDA).
+# ----------------------------------------------------------------------------
+# İstemiyorsan bu bölümü SİLEBİLİRSİN: STT (Groq Whisper) ve agent bunları
+# gerektirmez, torch+CUDA ~2.5 GB yer kaplar. XTTS numpy 2.x ile uyumlu olduğu
+# için ayrı venv gerekmez; model süreç içinde (agent_core/tts.py) yüklenir.
+#
+# NOT: torch'un CUDA'lı (+cu124) sürümü aşağıdaki pytorch index'inden gelir.
+# OneDrive altında kuruyorsan:  uv pip install --link-mode=copy -r requirements.txt
+# ============================================================================
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+coqui-tts
+transformers<5            # 5.x'te XTTS'in kullandığı isin_mps_friendly kaldırıldı
+setuptools               # bazı bağımlılıklar pkg_resources kullanıyor

@@ -32,6 +32,18 @@ _LANGUAGE = os.getenv("TTS_LANGUAGE", "tr")
 _SPEAKER = os.getenv("TTS_SPEAKER", "Claribel Dervla")
 _SPEAKER_WAV = os.getenv("TTS_SPEAKER_WAV", "").strip() or None
 
+# --- XTTS motor (inference) parametreleri (env ile ayarlanır) ----------------
+# speed: konuşma temposu; >1 daha hızlı (çok az hızlandırmak için 1.1). Çok yüksek
+#   doğallığı bozar.
+_SPEED = float(os.getenv("TTS_SPEED", "1.1"))
+# temperature: GPT örnekleme sıcaklığı. Düşük = daha monoton/kararlı, yüksek = ifadeli.
+_TEMPERATURE = float(os.getenv("TTS_TEMPERATURE", "0.75"))
+# repetition_penalty: tekrar cezası (yüksek = kekeleme/tekrar azalır).
+_REPETITION_PENALTY = float(os.getenv("TTS_REPETITION_PENALTY", "10.0"))
+_TOP_K = int(os.getenv("TTS_TOP_K", "50"))
+_TOP_P = float(os.getenv("TTS_TOP_P", "0.85"))
+_LENGTH_PENALTY = float(os.getenv("TTS_LENGTH_PENALTY", "1.0"))
+
 # --- Parça-sınırı temizliği: baş/son sessizlik kırpma + kısa fade in/out ------
 _FADE_MS = float(os.getenv("TTS_FADE_MS", "12"))
 _TRIM_SILENCE = os.getenv("TTS_TRIM_SILENCE", "1").lower() in ("1", "true", "yes")
@@ -144,7 +156,16 @@ def synthesize(text: str, out_dir: Path, run_id: str) -> List[str]:
 
     paths: List[str] = []
     for i, chunk in enumerate(chunks):
-        kwargs = {"text": chunk, "language": _LANGUAGE}
+        kwargs = {
+            "text": chunk,
+            "language": _LANGUAGE,
+            "speed": _SPEED,
+            "temperature": _TEMPERATURE,
+            "repetition_penalty": _REPETITION_PENALTY,
+            "top_k": _TOP_K,
+            "top_p": _TOP_P,
+            "length_penalty": _LENGTH_PENALTY,
+        }
         if _SPEAKER_WAV:
             kwargs["speaker_wav"] = _SPEAKER_WAV
         else:

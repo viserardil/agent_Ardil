@@ -10,7 +10,7 @@ adım adım loglar.
 - **Frontend:** React 19 · Vite
 - **LLM:** sağlayıcı-bağımsız (OpenAI-uyumlu endpoint; varsayılan `gpt-4.1`)
 - **Ses tanıma (STT):** Groq Whisper (`whisper-large-v3`)
-- **Sesli çıktı (TTS):** Chatterbox Multilingual — Türkçe TTS, yerel/CUDA, izole serviste (opsiyonel)
+- **Sesli çıktı (TTS):** Coqui XTTS-v2 — Türkçe TTS, yerel/CUDA, süreç içi (opsiyonel)
 
 ---
 
@@ -86,12 +86,11 @@ içini bilmek zorunda değildir.
 
 ```
 AgentArdil/
-├── run_api.py              # API sunucusunu başlatır (+ sesli çıktı servisini otomatik)
-├── voice_service.py        # İZOLE Chatterbox TTS mikroservisi (ayrı venv'de koşar)
+├── run_api.py              # API sunucusunu başlatır (uvicorn)
 ├── main.py                 # CLI: şeritleri/triyajı terminalden çalıştır
 ├── pyproject.toml
 ├── requirements.txt        # ana bağımlılıklar
-├── requirements-voice.txt  # opsiyonel TTS (Chatterbox) — AYRI .venv-voice'a kurulur
+├── requirements-voice.txt  # opsiyonel TTS (XTTS-v2) — aynı venv'e eklenir
 ├── .env.example            # ortam değişkenleri şablonu
 │
 ├── src/agent_core/
@@ -102,7 +101,7 @@ AgentArdil/
 │   ├── messages.py         # Mesajlardan araç çağrısı/dosya çıkarımı (ortak)
 │   ├── tracing.py          # Koşu izleme → session log dosyaları
 │   ├── stt.py              # Ses tanıma (Groq Whisper)
-│   ├── tts.py              # Sesli çıktı: metni parçalayıp voice_service'e HTTP ile yollar
+│   ├── tts.py              # Sesli çıktı: metni parçalayıp XTTS-v2 ile seslendirir (süreç içi)
 │   ├── api.py              # FastAPI: frontend'in konuştuğu HTTP arayüzü
 │   │
 │   ├── triage/             # Yönlendirme katmanı (schemas/prompts/nodes)
@@ -139,10 +138,10 @@ cp .env.example .env
 > `--link-mode=copy` ile çalıştır (OneDrive sabit bağlantıya izin vermez):
 > `uv pip install --link-mode=copy -e .`
 
-> **Opsiyonel — yerel TTS (Chatterbox):** Sesli çıktı istiyorsan ayrı bir izole
-> venv (`.venv-voice`) kurulur (torch+CUDA ~2.5 GB). Ana venv'e dokunmaz; kurulum
-> adımları için [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent için
-> gerekmez.
+> **Opsiyonel — yerel TTS (XTTS-v2):** Sesli çıktı istiyorsan aynı venv'e ek olarak
+> `requirements-voice.txt` kurulur (torch+CUDA ~2.5 GB). Ayrı venv/süreç gerekmez;
+> kurulum adımları için [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent
+> için gerekmez.
 
 ### 2) Frontend
 
@@ -155,13 +154,13 @@ npm install
 
 ## Çalıştırma
 
-Sistem en fazla **üç süreçten** oluşur. Sesli çıktı istemiyorsan ilk ikisi yeter:
+Sistem **iki süreçten** oluşur (sesli çıktı ayrı bir süreç GEREKTİRMEZ — model
+backend'in içinde çalışır):
 
-| Süreç | Port | Ne zaman | Nasıl başlar |
-|-------|:----:|----------|--------------|
-| **Backend API** (uvicorn) | `8000` | Her zaman | `python run_api.py` |
-| **Frontend** (Vite) | `5173` | Her zaman | `Frontend/`'de `npm run dev` |
-| **Sesli çıktı servisi** (Chatterbox) | `8756` | Sadece TTS için | `run_api.py` **otomatik** başlatır (`.venv-voice` varsa) |
+| Süreç | Port | Nasıl başlar |
+|-------|:----:|--------------|
+| **Backend API** (uvicorn) | `8000` | `python run_api.py` |
+| **Frontend** (Vite) | `5173` | `Frontend/`'de `npm run dev` |
 
 ### 1) Backend (Terminal 1 — proje kökü)
 
@@ -173,9 +172,8 @@ python run_api.py            # http://127.0.0.1:8000
 python run_api.py --reload
 ```
 
-Açılışta `.venv-voice` bulunursa **sesli çıktı servisi otomatik başlatılır** (log:
-`logs/voice_service.log`; model yüklenirken ilk sesli istek biraz bekler).
-Sesli çıktıyı hiç istemiyorsan: `python run_api.py --no-voice`.
+Sesli çıktı açıksa XTTS modeli **ilk sesli istekte** aynı süreçte yüklenir (o ilk
+cevap birkaç saniye bekler; sonrakiler hızlı). Sesli mod kapalıyken hiç yüklenmez.
 
 ### 2) Frontend (Terminal 2 — `Frontend/`)
 
@@ -278,94 +276,66 @@ mikrofonun sesi duyup duymadığını anında görebilirsin.
 
 ## Sesli çıktı (TTS)
 
-Metni sese çevirmek için **Chatterbox Multilingual** (Resemble AI) kullanılır —
-Türkçe dahil 23 dil, yerel GPU'da (CUDA) çalışır, ses klonlama destekler.
+Metni sese çevirmek için **Coqui XTTS-v2** kullanılır — Türkçe dahil 17 dil, yerel
+GPU'da (CUDA) çalışır, **58 yerleşik konuşmacı** ve ses klonlama destekler.
 
 Arayüzde giriş kutusunun üstündeki 🔊 **Sesli çıktı** anahtarı açıkken, ajanın
 cevabı **metinle birlikte** seslendirilir. Uzun cevaplar cümle sınırında
-**parçalanır** (parça başına ~token bütçesi, en çok birkaç düzine parça) ve arayüz
-parçaları **sırayla oynatır** — biri biterken diğeri hazırdır (aşamalı oynatma).
+**parçalanır** ve arayüz parçaları **sırayla oynatır** — biri biterken diğeri
+hazırdır (aşamalı oynatma; kullanıcı ▶'ye basınca başlar).
 
-### Neden ayrı bir venv/süreç?
+### Mimari (ayrı süreç/venv YOK)
 
-Chatterbox `numpy<2` gerektiriyor; ana AgentArdil venv'i ise numpy 2.x kullanıyor
-(scipy vb. ona göre derli). İkisi tek venv'de **binary olarak barışmıyor**. Bu
-yüzden Chatterbox **kendi izole venv'inde** (`.venv-voice`) **ayrı bir süreç** olarak
-koşar (`voice_service.py`, port `8756`); ana API ona HTTP ile konuşur
-(`src/agent_core/tts.py`). Böylece ağır/çakışan TTS bağımlılıkları ana agent
-sürecinden tamamen izole kalır ve sesli mod kapalıyken hiçbir maliyeti olmaz.
+XTTS-v2 ana venv'le uyumlu (numpy 2.x) olduğundan Chatterbox'ta gereken izole
+venv/mikroservis mimarisine gerek kalmadı. Model, backend'in **kendi sürecinde**
+(`src/agent_core/tts.py`) ilk sesli istekte **tembel yüklenir**, sonra bellekte
+sıcak kalır. Sesli mod kapalıyken torch/TTS hiç import edilmez.
 
 ```
-Frontend (🔊)  ──►  API :8000  ──►  tts.py  ──HTTP──►  voice_service :8756
-                                   (parçalama)         (.venv-voice, Chatterbox)
-      ▲                                                        │
-      └──────────────  wav parçaları (sırayla oynatılır)  ◄────┘
+Frontend (🔊)  ──►  API :8000  ──►  tts.py (parçala → XTTS-v2, süreç içi)
+      ▲                                        │
+      └────────  wav parçaları (sırayla oynatılır)  ◄────┘
 ```
 
-### Kurulum (izole venv)
+### Kurulum (aynı venv'e ek)
 
 ```bash
-# 1) İzole venv (ana venv'e dokunmaz)
-uv venv .venv-voice --python 3.11
-
-# 2) CUDA'lı torch (RTX serisi -> cu124); OneDrive'da --link-mode=copy şart
+# 1) CUDA'lı torch (RTX serisi -> cu124); coqui-tts torch'u ayrı ister
 uv pip install --link-mode=copy torch==2.6.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124 --python .venv-voice
+    --index-url https://download.pytorch.org/whl/cu124
 
-# 3) Chatterbox + sabitler (bkz. requirements-voice.txt)
-uv pip install --link-mode=copy -r requirements-voice.txt --python .venv-voice
+# 2) coqui-tts + sabitler (bkz. requirements-voice.txt)
+uv pip install --link-mode=copy -r requirements-voice.txt
 ```
 
-Model ağırlıkları (`ResembleAI/chatterbox`, ~1-2 GB) ilk çalıştırmada Hugging
-Face'ten iner, sonra cache'ten yüklenir.
+Model (`xtts_v2`, ~1.8 GB) ilk çalıştırmada iner, sonra cache'ten yüklenir. Lisans
+onayı `COQUI_TOS_AGREED=1` olarak `tts.py` içinde otomatik ayarlanır.
 
-> **Not:** `requirements-voice.txt`, `setuptools<81` sabitler — Chatterbox'ın ses
-> filigranı (perth) `pkg_resources` kullanıyor ve setuptools 81+ bunu kaldırdı.
+> **Not:** `requirements-voice.txt`, `transformers<5` sabitler — coqui-tts bunu
+> sürümsüz istiyor ama transformers 5.x'te XTTS'in kullandığı `isin_mps_friendly`
+> kaldırıldı, o yüzden 4.x gerekiyor.
 
-### Çalıştırma
+### Ses ayarları
 
-`.venv-voice` mevcutsa `python run_api.py` **servisi otomatik başlatır** (ayrı
-terminal gerekmez). İstersen elle de başlatabilirsin:
-
-```bash
-.venv-voice/Scripts/python voice_service.py     # http://127.0.0.1:8756
-```
-
-### Stabilite / ses ayarları
-
-Sesin tonunu ya da kalitesini ayarlamak istersen `.env`'den (değişince servisi
-yeniden başlat):
+`.env`'den (değişince sunucuyu yeniden başlat):
 
 | Değişken | Varsayılan | Etki |
 |----------|:----------:|------|
-| `TTS_TEMPERATURE` | `0.5` | Çok düşük (0.2) run-on/junk üretir, yüksek dalgalandırır — 0.5 dengeli |
-| `TTS_CFG_WEIGHT` | `0.7` | **Yüksek = metne daha sadık, cümle sonu junk'ı azaltır** (hâlâ varsa 1.0) |
-| `TTS_EXAGGERATION` | `0.5` | Düşük = daha nötr/sakin ton |
-| `TTS_LANGUAGE` | `tr` | Sentez dili |
-| `TTS_AUDIO_PROMPT` | — | Ses klonlama için kısa referans wav yolu |
-| `VOICE_AUTOSTART` | `1` | `run_api.py` servisi otomatik başlatsın mı |
+| `TTS_LANGUAGE` | `tr` | Sentez dili (17 dil) |
+| `TTS_SPEAKER` | `Claribel Dervla` | Yerleşik konuşmacı (58 seçenek: Daisy Studious, Gracie Wise…) |
+| `TTS_SPEAKER_WAV` | — | Ses **klonlama** için kısa referans wav yolu (verilirse `TTS_SPEAKER` yok sayılır) |
+| `TTS_CHUNK_TOKENS` | `120` | Parça başına ~token bütçesi |
+| `TTS_MAX_CHUNKS` | `24` | Toplam parça tavanı (aşamalı oynatma) |
 
-#### Ayarlama gözlemleri (deneyerek bulundu)
+Parça-sınırı klik/sessizliği için her parçaya hafif **baş/son sessizlik kırpma +
+fade in/out** uygulanır (`TTS_FADE_MS`, `TTS_TRIM_SILENCE`).
 
-Chatterbox **otoregresif** bir model; kalite büyük ölçüde üretim parametrelerine
-bağlı. Türkçe'de yaşadıklarımız:
+> **Neden Chatterbox değil?** Önce Chatterbox denendi ama Türkçe'de otoregresif
+> yapısı cümle sonlarında "junk/rambling" üretiyordu ve `numpy<2` gereksinimi ayrı
+> bir izole venv+servis zorunlu kılıyordu. XTTS-v2 hem daha stabil hem ana venv'le
+> uyumlu; mimari tek sürece indirildi.
 
-- **Cümle sonu "junk" (rambling):** Model bazen cümle bittikten sonra kısa bir
-  gürültü/mırıldanma ekliyor. Asıl sebebi **çok düşük temperature** (ör. 0.2):
-  otoregresif üretim fazla açgözlü olunca run-on yapıyor. **0.5** bunu belirgin
-  azalttı. Ek olarak **`cfg_weight`'i 0.7'ye çıkarmak** (metne sadakat) junk'ı
-  daha da düşürdü. Bu, Freya'daki (flow-matching) mantığın **tersi** — orada daha
-  fazla adım stabilize ediyordu; burada aşırı düşük temperature *bozuyor*.
-- **Parça-sınırı artefaktları:** Parçalar sırayla çalınırken dikişte klik/kuyruk
-  duyulabiliyordu. `voice_service.py` her parçaya **baş/son sessizlik kırpma +
-  kısa fade in/out** uyguluyor; ayrıca konuşmadan sonra **boşlukla ayrılmış kısa
-  junk segmenti** kesiliyor (`TTS_TRIM_TAIL`). Uzun/rambling tipi junk'ı ise
-  DSP güvenle kesemiyor (virgül duraklamasıyla karışıyor) — orada çözüm yukarıdaki
-  üretim parametreleri.
-- Junk **stokastik**: bazı üretimlerde hiç yok, bazılarında var. Parametreler
-  sıklığını düşürür, %100 sıfırlamaz.
-
-Model kaynağı: [ResembleAI/chatterbox](https://huggingface.co/ResembleAI/chatterbox).
+Model: [coqui-tts (idiap)](https://github.com/idiap/coqui-ai-TTS) · lisans CPML (ticari değil).
 
 ---
 
@@ -384,11 +354,11 @@ Tümü `.env`'de (bkz. [`.env.example`](.env.example)):
 | `STT_MODEL` | — | Varsayılan `whisper-large-v3` |
 | `STT_LANGUAGE` | — | Ör. `tr` (boşsa otomatik tespit) |
 | `LLM_STRUCTURED_METHOD` | — | Sağlayıcı `json_schema` desteklemiyorsa `function_calling` |
-| `TTS_TEMPERATURE` | — | Sesli çıktı: düşük = daha stabil (varsayılan 0.6) |
-| `VOICE_AUTOSTART` | — | `run_api.py` sesli çıktı servisini otomatik başlatsın mı (varsayılan açık) |
+| `TTS_LANGUAGE` | — | Sesli çıktı dili (varsayılan `tr`) |
+| `TTS_SPEAKER` | — | XTTS yerleşik konuşmacı (varsayılan `Claribel Dervla`) |
 
-> Sesli çıktının tüm knob'ları (exaggeration, cfg_weight, dil, klonlama, port) için
-> bkz. [Sesli çıktı (TTS)](#sesli-çıktı-tts) ve `.env.example`.
+> Sesli çıktının tüm knob'ları (konuşmacı, klonlama, parçalama) için bkz.
+> [Sesli çıktı (TTS)](#sesli-çıktı-tts) ve `.env.example`.
 
 ---
 

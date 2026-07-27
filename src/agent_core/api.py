@@ -199,10 +199,10 @@ def send_message(session_id: str, request: SendMessageRequest) -> SendMessageRes
         f"/api/artifacts/{Path(path).name}" for path in summary.get("artifacts", [])
     ]
 
-    # Sesli çıktı: istenmişse cevabı Chatterbox ile seslendir (parça parça, sırayla).
-    # Metin ile BİRLİKTE döner. Sentez, izole sesli çıktı servisine (voice_service.py)
-    # HTTP ile yaptırılır. Servis kapalı/çökerse metin cevabı bozulmasın diye hata
-    # yalnızca loglanır; audio_urls boş kalır.
+    # Sesli çıktı: istenmişse cevabı XTTS-v2 ile seslendir (parça parça, sırayla).
+    # Metin ile BİRLİKTE döner. Sentez süreç içinde yapılır (agent_core/tts.py);
+    # model ilk çağrıda tembel yüklenir. Üretim çökerse metin cevabı bozulmasın diye
+    # hata yalnızca loglanır; audio_urls boş kalır.
     summary["audio_urls"] = []
     if request.voice and answer and not summary.get("error"):
         try:

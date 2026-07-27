@@ -319,7 +319,7 @@ onayı `COQUI_TOS_AGREED=1` olarak `tts.py` içinde otomatik ayarlanır.
 | Değişken | Varsayılan | Etki |
 |----------|:----------:|------|
 | `TTS_LANGUAGE` | `tr` | Sentez dili (17 dil) |
-| `TTS_SPEAKER` | `Claribel Dervla` | Yerleşik konuşmacı (58 seçenek: Daisy Studious, Gracie Wise…) |
+| `TTS_SPEAKER` | `Tanja Adelina` | Yerleşik konuşmacı (58 seçenek: Daisy Studious, Gracie Wise…) |
 | `TTS_SPEAKER_WAV` | — | Ses **klonlama** için kısa referans wav yolu (verilirse `TTS_SPEAKER` yok sayılır) |
 | `TTS_SPEED` | `1.1` | Konuşma temposu; >1 daha hızlı (çok yüksek doğallığı bozar) |
 | `TTS_TEMPERATURE` | `0.75` | GPT örnekleme sıcaklığı (düşük=monoton/kararlı, yüksek=ifadeli) |

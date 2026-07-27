@@ -29,7 +29,7 @@ _MODEL_NAME = os.getenv("TTS_MODEL", "tts_models/multilingual/multi-dataset/xtts
 _LANGUAGE = os.getenv("TTS_LANGUAGE", "tr")
 # Yerleşik konuşmacı (XTTS-v2'de 58 seçenek). Kendi sesini klonlamak istersen
 # TTS_SPEAKER_WAV'a kısa bir referans wav yolu ver (o zaman bu yok sayılır).
-_SPEAKER = os.getenv("TTS_SPEAKER", "Claribel Dervla")
+_SPEAKER = os.getenv("TTS_SPEAKER", "Tanja Adelina")
 _SPEAKER_WAV = os.getenv("TTS_SPEAKER_WAV", "").strip() or None
 
 # --- XTTS motor (inference) parametreleri (env ile ayarlanır) ----------------

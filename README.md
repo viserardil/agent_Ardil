@@ -89,8 +89,7 @@ AgentArdil/
 ├── run_api.py              # API sunucusunu başlatır (uvicorn)
 ├── main.py                 # CLI: şeritleri/triyajı terminalden çalıştır
 ├── pyproject.toml
-├── requirements.txt        # ana bağımlılıklar
-├── requirements-voice.txt  # opsiyonel TTS (XTTS-v2) — aynı venv'e eklenir
+├── requirements.txt        # tüm bağımlılıklar (sonda opsiyonel TTS bölümü)
 ├── .env.example            # ortam değişkenleri şablonu
 │
 ├── src/agent_core/
@@ -138,10 +137,10 @@ cp .env.example .env
 > `--link-mode=copy` ile çalıştır (OneDrive sabit bağlantıya izin vermez):
 > `uv pip install --link-mode=copy -e .`
 
-> **Opsiyonel — yerel TTS (XTTS-v2):** Sesli çıktı istiyorsan aynı venv'e ek olarak
-> `requirements-voice.txt` kurulur (torch+CUDA ~2.5 GB). Ayrı venv/süreç gerekmez;
-> kurulum adımları için [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak. STT/agent
-> için gerekmez.
+> **Opsiyonel — yerel TTS (XTTS-v2):** Sesli çıktı için gereken paketler
+> `requirements.txt`'in sonundaki **opsiyonel TTS bölümündedir** (torch+CUDA ~2.5 GB).
+> İstemiyorsan o bölümü silebilirsin. Ayrı venv/süreç gerekmez; ayrıntı için
+> [Sesli çıktı (TTS)](#sesli-çıktı-tts) bölümüne bak.
 
 ### 2) Frontend
 
@@ -299,21 +298,19 @@ Frontend (🔊)  ──►  API :8000  ──►  tts.py (parçala → XTTS-v2, 
 
 ### Kurulum (aynı venv'e ek)
 
-```bash
-# 1) CUDA'lı torch (RTX serisi -> cu124); coqui-tts torch'u ayrı ister
-uv pip install --link-mode=copy torch==2.6.0 torchaudio==2.6.0 \
-    --index-url https://download.pytorch.org/whl/cu124
+Sesli çıktı paketleri `requirements.txt`'in sonundaki opsiyonel TTS bölümündedir
+(CUDA'lı torch dahil, pytorch index'i dosyada tanımlı). Tümünü kurmak için:
 
-# 2) coqui-tts + sabitler (bkz. requirements-voice.txt)
-uv pip install --link-mode=copy -r requirements-voice.txt
+```bash
+uv pip install --link-mode=copy -r requirements.txt
 ```
 
 Model (`xtts_v2`, ~1.8 GB) ilk çalıştırmada iner, sonra cache'ten yüklenir. Lisans
 onayı `COQUI_TOS_AGREED=1` olarak `tts.py` içinde otomatik ayarlanır.
 
-> **Not:** `requirements-voice.txt`, `transformers<5` sabitler — coqui-tts bunu
-> sürümsüz istiyor ama transformers 5.x'te XTTS'in kullandığı `isin_mps_friendly`
-> kaldırıldı, o yüzden 4.x gerekiyor.
+> **Not:** requirements'ta `transformers<5` sabitlenir — coqui-tts bunu sürümsüz
+> istiyor ama transformers 5.x'te XTTS'in kullandığı `isin_mps_friendly` kaldırıldı,
+> o yüzden 4.x gerekiyor.
 
 ### Ses ayarları
 
@@ -375,4 +372,3 @@ Tümü `.env`'de (bkz. [`.env.example`](.env.example)):
 
 ---
 
-🤖 Bu proje [Claude Code](https://claude.com/claude-code) ile geliştirildi.

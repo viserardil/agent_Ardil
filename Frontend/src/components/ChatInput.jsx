@@ -1,9 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Paperclip, Mic, Square, Loader2, ArrowUp, Languages, Volume2, VolumeX } from 'lucide-react';
-import { api } from '../api';
+import { Paperclip, Mic, Square, ArrowUp, Languages, Volume2, VolumeX } from 'lucide-react';
 
-// Ses tanıma dilleri. "auto" = Whisper kendi tespit eder. Yeni dil eklemek için
-// {code, label} eklemen yeterli — kod ISO 639-1 iki harfli (tr, es, en, de...).
+// Ses tanıma dilleri (canlı STT şu an backend'de STT_STREAM_LANG ile ayarlanır;
+// seçici ileride streaming'e de bağlanacak).
 const LANGUAGES = [
   { code: 'auto', label: 'Otomatik algıla' },
   { code: 'tr', label: 'Türkçe' },
@@ -19,34 +18,46 @@ const LANGUAGES = [
   { code: 'ja', label: '日本語' }
 ];
 
+// AudioWorklet işlemcisi: mikrofon karelerini biriktirip ~100ms'lik (1600 örnek
+// @16kHz) Float32 PCM parçaları olarak ana iş parçacığına yollar. Ayrı dosya
+// yerine blob URL ile yüklenir (Vite paketlemesine takılmaz).
+const WORKLET_CODE = `
+class PCMProc extends AudioWorkletProcessor {
+  constructor(){ super(); this.buf=[]; this.target=1600; }
+  process(inputs){
+    const ch = inputs[0] && inputs[0][0];
+    if(ch){
+      for(let i=0;i<ch.length;i++) this.buf.push(ch[i]);
+      while(this.buf.length>=this.target){
+        this.port.postMessage(Float32Array.from(this.buf.splice(0,this.target)));
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('pcm-proc', PCMProc);
+`;
+
 export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary }) {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
-  const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState('');
 
-  // Ses girişi cihaz seçimi + canlı seviye. "Altyazı M.K." halüsinasyonunun sebebi
-  // tarayıcının SESSİZ bir varsayılan mikrofon seçmesiydi (ör. bağlı Bluetooth
-  // kulaklığın çalışmayan mikrofonu). Kullanıcı doğru cihazı seçebilsin ve seviyeyi
-  // canlı görsün diye bunlar eklendi.
   const [devices, setDevices] = useState([]);
   const [deviceId, setDeviceId] = useState('');
   const [level, setLevel] = useState(0);
 
-  // Ses tanıma dili — arayüzden anında değişir, sunucu restart'ı gerekmez.
-  // Seçim localStorage'da tutulur (sayfa yenilense de korunur). Varsayılan: Türkçe.
   const [lang, setLang] = useState(() => localStorage.getItem('ardil_stt_lang') || 'tr');
   const changeLang = (code) => {
     setLang(code);
     try {
       localStorage.setItem('ardil_stt_lang', code);
     } catch {
-      // localStorage kapalıysa (gizli sekme vb.) sessiz geç
+      // localStorage kapalıysa sessiz geç
     }
   };
 
-  // Sesli çıktı modu: açıkken cevap Chatterbox ile seslendirilir (parça parça).
-  // Tercih localStorage'da tutulur. Kapalıyken backend'de sesli çıktı hiç çalışmaz.
+  // Sesli çıktı modu (XTTS).
   const [voiceOut, setVoiceOut] = useState(() => localStorage.getItem('ardil_tts_on') === '1');
   const toggleVoiceOut = () => {
     setVoiceOut((prev) => {
@@ -60,11 +71,14 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
     });
   };
 
-  const recorderRef = useRef(null);
-  const chunksRef = useRef([]);
+  // Canlı STT için kaynaklar
+  const wsRef = useRef(null);
   const audioCtxRef = useRef(null);
+  const streamRef = useRef(null);
+  const nodeRef = useRef(null);
+  const analyserRef = useRef(null);
   const rafRef = useRef(null);
-  const sourceRef = useRef(null);
+  const baseTextRef = useRef('');   // streaming başlamadan önceki metin (üzerine eklenir)
 
   const defaultChips = [
     'AAPL güncel fiyatı nedir?',
@@ -73,11 +87,12 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
   ];
   const chips = suggestionChips || defaultChips;
 
-  useEffect(() => () => cleanupMeter(), []);
+  useEffect(() => () => stopLive(), []);
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!text.trim() || disabled) return;
+    if (recording) stopLive();
     onSendMessage(text, voiceOut);
     setText('');
   };
@@ -94,141 +109,152 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
     onSendMessage(chipText, voiceOut);
   };
 
-  // --- Sesli giriş -----------------------------------------------------------
-  const pickMime = () => {
-    const prefs = ['audio/webm', 'audio/mp4', 'audio/ogg'];
-    for (const m of prefs) {
-      if (window.MediaRecorder?.isTypeSupported?.(m)) return m;
-    }
-    return '';
-  };
-
-  // İzin verildikten SONRA cihaz etiketleri okunabiliyor; listeyi o an tazeliyoruz.
+  // --- Canlı (streaming) sesli giriş ----------------------------------------
   const refreshDevices = async () => {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
       setDevices(all.filter((d) => d.kind === 'audioinput'));
     } catch {
-      // enumerate başarısızsa sessiz geç; seçici görünmez, varsayılan kullanılır
+      // enumerate başarısızsa sessiz geç
     }
   };
 
-  // Canlı seviye ölçer: seçili mikrofon gerçekten sinyal alıyor mu göstergesi.
-  const startMeter = (stream) => {
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    const ctx = new AudioCtx();
-    const source = ctx.createMediaStreamSource(stream);
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 512;
-    source.connect(analyser);
-    audioCtxRef.current = ctx;
-    sourceRef.current = source;
-
-    const data = new Uint8Array(analyser.fftSize);
-    const tick = () => {
-      analyser.getByteTimeDomainData(data);
-      let sum = 0;
-      for (let i = 0; i < data.length; i++) {
-        const x = (data[i] - 128) / 128;
-        sum += x * x;
+  const startLive = async () => {
+    setMicError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicError('Tarayıcı mikrofonu desteklemiyor.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true
+      });
+      streamRef.current = stream;
+      const track = stream.getAudioTracks()[0];
+      if (track && !deviceId) {
+        const s = track.getSettings?.();
+        if (s?.deviceId) setDeviceId(s.deviceId);
       }
-      setLevel(Math.sqrt(sum / data.length));
-      rafRef.current = requestAnimationFrame(tick);
-    };
-    tick();
+      refreshDevices();
+
+      // 16 kHz AudioContext — Whisper/silero bunu bekler (modern Chrome/Edge destekler).
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx({ sampleRate: 16000 });
+      audioCtxRef.current = ctx;
+      const src = ctx.createMediaStreamSource(stream);
+
+      // Canlı seviye ölçer (mikrofon sinyal alıyor mu)
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 512;
+      src.connect(analyser);
+      analyserRef.current = analyser;
+      const data = new Uint8Array(analyser.fftSize);
+      const tick = () => {
+        analyser.getByteTimeDomainData(data);
+        let sum = 0;
+        for (let i = 0; i < data.length; i++) {
+          const x = (data[i] - 128) / 128;
+          sum += x * x;
+        }
+        setLevel(Math.sqrt(sum / data.length));
+        rafRef.current = requestAnimationFrame(tick);
+      };
+      tick();
+
+      // PCM akıtan worklet
+      const blobUrl = URL.createObjectURL(new Blob([WORKLET_CODE], { type: 'application/javascript' }));
+      await ctx.audioWorklet.addModule(blobUrl);
+      URL.revokeObjectURL(blobUrl);
+      const node = new AudioWorkletNode(ctx, 'pcm-proc');
+      nodeRef.current = node;
+
+      // WebSocket (/ws/stt — Vite proxy backend'e yönlendirir)
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      const ws = new WebSocket(`${proto}://${location.host}/ws/stt`);
+      ws.binaryType = 'arraybuffer';
+      wsRef.current = ws;
+
+      // Var olan metnin üzerine ekle
+      baseTextRef.current = text.trim() ? text.trim() + ' ' : '';
+
+      ws.onmessage = (e) => {
+        let d;
+        try {
+          d = JSON.parse(e.data);
+        } catch {
+          return;
+        }
+        if (d.error) {
+          setMicError('Canlı STT hatası: ' + d.error);
+          return;
+        }
+        const c = d.committed || '';
+        const i = d.interim || '';
+        // committed (kesin) + interim (geçici) canlı olarak kutuya
+        setText((baseTextRef.current + c + (i ? (c ? ' ' : '') + i : '')).trimStart());
+      };
+      ws.onerror = () => setMicError('Canlı STT bağlantı hatası — backend açık mı?');
+
+      node.port.onmessage = (e) => {
+        if (ws.readyState === 1) ws.send(e.data.buffer || e.data);
+      };
+      src.connect(node);
+      node.connect(ctx.destination); // process çıktı yazmadığı için sessiz — echo yok
+
+      setRecording(true);
+    } catch (err) {
+      setMicError('Mikrofona erişilemedi: ' + err.message);
+      stopLive();
+    }
   };
 
-  const cleanupMeter = () => {
+  const stopLive = () => {
+    setRecording(false);
+    try {
+      wsRef.current?.close();
+    } catch {
+      // yok say
+    }
+    wsRef.current = null;
+    try {
+      if (nodeRef.current) nodeRef.current.port.onmessage = null;
+      nodeRef.current?.disconnect();
+    } catch {
+      // yok say
+    }
+    nodeRef.current = null;
+    try {
+      analyserRef.current?.disconnect();
+    } catch {
+      // yok say
+    }
+    analyserRef.current = null;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = null;
     try {
-      sourceRef.current?.disconnect();
+      streamRef.current?.getTracks().forEach((t) => t.stop());
     } catch {
-      // zaten kapalıysa yok say
+      // yok say
     }
-    sourceRef.current = null;
+    streamRef.current = null;
     if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      audioCtxRef.current.close();
+      try {
+        audioCtxRef.current.close();
+      } catch {
+        // yok say
+      }
     }
     audioCtxRef.current = null;
     setLevel(0);
   };
 
-  const startRecording = async () => {
-    setMicError('');
-    if (!navigator.mediaDevices?.getUserMedia) {
-      setMicError('Tarayıcı mikrofon kaydını desteklemiyor.');
-      return;
-    }
-    try {
-      const constraints = {
-        audio: deviceId ? { deviceId: { exact: deviceId } } : true
-      };
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-
-      // Hangi cihaz seçildi? (teşhis için) ve cihaz listesini güncelle.
-      const track = stream.getAudioTracks()[0];
-      if (track && !deviceId) {
-        const settings = track.getSettings?.();
-        if (settings?.deviceId) setDeviceId(settings.deviceId);
-      }
-      refreshDevices();
-      startMeter(stream);
-
-      const mime = pickMime();
-      const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        cleanupMeter();
-        const type = mime || 'audio/webm';
-        const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
-        const blob = new Blob(chunksRef.current, { type });
-
-        setTranscribing(true);
-        try {
-          const { text: transcript } = await api.transcribe(blob, `audio.${ext}`, lang);
-          if (transcript) {
-            setText((prev) => (prev.trim() ? prev.trim() + ' ' : '') + transcript);
-          } else {
-            setMicError('Ses anlaşılamadı, tekrar dener misiniz?');
-          }
-        } catch (err) {
-          setMicError(`Ses metne çevrilemedi: ${err.message}`);
-        } finally {
-          setTranscribing(false);
-        }
-      };
-
-      recorder.start();
-      recorderRef.current = recorder;
-      setRecording(true);
-    } catch (err) {
-      setMicError(`Mikrofona erişilemedi: ${err.message}`);
-      cleanupMeter();
-    }
-  };
-
-  const stopRecording = () => {
-    if (recorderRef.current && recording) {
-      recorderRef.current.stop();
-      setRecording(false);
-    }
-  };
-
   const toggleMic = () => {
-    if (disabled || transcribing) return;
-    if (recording) stopRecording();
-    else startRecording();
+    if (disabled) return;
+    if (recording) stopLive();
+    else startLive();
   };
 
-  const micTitle = recording ? 'Kaydı durdur' : transcribing ? 'Metne çevriliyor…' : 'Sesli giriş';
-  // Konuşurken seviye ~0 kalıyorsa cihaz sessiz demektir.
+  const micTitle = recording ? 'Canlı dinlemeyi durdur' : 'Canlı sesli giriş';
   const silentWhileRecording = recording && level < 0.01;
 
   return (
@@ -239,83 +265,82 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
         <div style={{ color: '#b91c1c', fontSize: 13, marginBottom: 8 }}>{micError}</div>
       )}
 
-      {/* Ses tanıma dili (her zaman) + kayıtta canlı seviye + çok mikrofonda cihaz seçimi */}
+      {/* Dil + sesli çıktı + cihaz + canlı seviye */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
-          <label
-            style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}
-            title="Ses tanıma dili"
-          >
-            <Languages size={14} />
-            <select
-              value={lang}
-              onChange={(e) => changeLang(e.target.value)}
-              disabled={recording}
-              style={{
-                fontSize: 12, padding: '4px 8px', borderRadius: 6,
-                border: '1px solid #e2e8f0', background: '#fff', color: '#334155'
-              }}
-            >
-              {LANGUAGES.map((l) => (
-                <option key={l.code} value={l.code}>{l.label}</option>
-              ))}
-            </select>
-          </label>
-
-          {/* Sesli çıktı anahtarı: açıkken cevap Chatterbox ile seslendirilir */}
-          <button
-            type="button"
-            onClick={toggleVoiceOut}
-            title={voiceOut ? 'Sesli çıktı açık — kapatmak için tıkla' : 'Sesli çıktı kapalı — açmak için tıkla'}
-            aria-pressed={voiceOut}
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#64748b' }}
+          title="Ses tanıma dili"
+        >
+          <Languages size={14} />
+          <select
+            value={lang}
+            onChange={(e) => changeLang(e.target.value)}
+            disabled={recording}
             style={{
-              display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
-              padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
-              border: `1px solid ${voiceOut ? '#22c55e' : '#e2e8f0'}`,
-              background: voiceOut ? '#f0fdf4' : '#fff',
-              color: voiceOut ? '#16a34a' : '#64748b'
+              fontSize: 12, padding: '4px 8px', borderRadius: 6,
+              border: '1px solid #e2e8f0', background: '#fff', color: '#334155'
             }}
           >
-            {voiceOut ? <Volume2 size={14} /> : <VolumeX size={14} />}
-            <span>Sesli çıktı</span>
-          </button>
+            {LANGUAGES.map((l) => (
+              <option key={l.code} value={l.code}>{l.label}</option>
+            ))}
+          </select>
+        </label>
 
-          {devices.length > 1 && (
-            <select
-              value={deviceId}
-              onChange={(e) => setDeviceId(e.target.value)}
-              disabled={recording}
-              style={{
-                fontSize: 12, padding: '4px 8px', borderRadius: 6,
-                border: '1px solid #e2e8f0', background: '#fff', color: '#334155', maxWidth: 260
-              }}
-              title="Mikrofon cihazı"
-            >
-              {devices.map((d) => (
-                <option key={d.deviceId} value={d.deviceId}>
-                  {d.label || 'Mikrofon'}
-                </option>
-              ))}
-            </select>
-          )}
+        <button
+          type="button"
+          onClick={toggleVoiceOut}
+          title={voiceOut ? 'Sesli çıktı açık — kapatmak için tıkla' : 'Sesli çıktı kapalı — açmak için tıkla'}
+          aria-pressed={voiceOut}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6, fontSize: 12,
+            padding: '4px 10px', borderRadius: 6, cursor: 'pointer',
+            border: `1px solid ${voiceOut ? '#22c55e' : '#e2e8f0'}`,
+            background: voiceOut ? '#f0fdf4' : '#fff',
+            color: voiceOut ? '#16a34a' : '#64748b'
+          }}
+        >
+          {voiceOut ? <Volume2 size={14} /> : <VolumeX size={14} />}
+          <span>Sesli çıktı</span>
+        </button>
 
-          {recording && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 160 }}>
-              <div style={{ flex: 1, height: 6, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
-                <div
-                  style={{
-                    height: '100%',
-                    width: `${Math.min(100, level * 300)}%`,
-                    background: silentWhileRecording ? '#f59e0b' : '#22c55e',
-                    transition: 'width 80ms linear'
-                  }}
-                />
-              </div>
-              <span style={{ fontSize: 12, color: silentWhileRecording ? '#b45309' : '#16a34a', whiteSpace: 'nowrap' }}>
-                {silentWhileRecording ? 'ses algılanmıyor' : 'dinliyorum'}
-              </span>
+        {devices.length > 1 && (
+          <select
+            value={deviceId}
+            onChange={(e) => setDeviceId(e.target.value)}
+            disabled={recording}
+            style={{
+              fontSize: 12, padding: '4px 8px', borderRadius: 6,
+              border: '1px solid #e2e8f0', background: '#fff', color: '#334155', maxWidth: 260
+            }}
+            title="Mikrofon cihazı"
+          >
+            {devices.map((d) => (
+              <option key={d.deviceId} value={d.deviceId}>
+                {d.label || 'Mikrofon'}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {recording && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 160 }}>
+            <div style={{ flex: 1, height: 6, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden' }}>
+              <div
+                style={{
+                  height: '100%',
+                  width: `${Math.min(100, level * 300)}%`,
+                  background: silentWhileRecording ? '#f59e0b' : '#22c55e',
+                  transition: 'width 80ms linear'
+                }}
+              />
             </div>
-          )}
-        </div>
+            <span style={{ fontSize: 12, color: silentWhileRecording ? '#b45309' : '#16a34a', whiteSpace: 'nowrap' }}>
+              {silentWhileRecording ? 'ses algılanmıyor' : 'canlı dinliyorum…'}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Suggestion Chips */}
       <div className="suggestion-chips">
@@ -326,7 +351,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
         ))}
       </div>
 
-      {/* Main Input Field Container */}
+      {/* Giriş kutusu */}
       <form className="input-box-wrapper" onSubmit={handleSubmit}>
         <button type="button" className="input-action-btn" title="Attach file">
           <Paperclip size={18} />
@@ -336,12 +361,10 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
           className="chat-textarea"
           placeholder={
             recording
-              ? 'Dinliyorum… bitince mikrofona tekrar bas'
-              : transcribing
-                ? 'Metne çevriliyor…'
-                : disabled
-                  ? 'Ajan çalışıyor…'
-                  : 'Send a message to ardilAgent...'
+              ? 'Canlı dinliyorum… konuş, yazı anında beliriyor'
+              : disabled
+                ? 'Ajan çalışıyor…'
+                : 'Send a message to ardilAgent...'
           }
           rows={1}
           value={text}
@@ -355,16 +378,10 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
           className="input-action-btn"
           title={micTitle}
           onClick={toggleMic}
-          disabled={disabled || transcribing}
+          disabled={disabled}
           style={recording ? { color: '#ef4444' } : undefined}
         >
-          {transcribing ? (
-            <Loader2 size={18} style={{ animation: 'ardil-spin 1s linear infinite' }} />
-          ) : recording ? (
-            <Square size={18} fill="#ef4444" />
-          ) : (
-            <Mic size={18} />
-          )}
+          {recording ? <Square size={18} fill="#ef4444" /> : <Mic size={18} />}
         </button>
 
         <button
@@ -377,7 +394,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
         </button>
       </form>
 
-      {/* Footer Info — token sayacı son koşudan gelir, sabit değer değil */}
+      {/* Footer Info */}
       <div className="footer-disclaimer">
         <span>ardilAgent can make mistakes. Check important info.</span>
         <span>

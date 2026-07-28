@@ -41,3 +41,16 @@ torchaudio==2.6.0+cu124
 coqui-tts
 transformers<5            # 5.x'te XTTS'in kullandığı isin_mps_friendly kaldırıldı
 setuptools               # bazı bağımlılıklar pkg_resources kullanıyor
+# transformers <1.0 huggingface-hub ister; faster-whisper kurulumu bunu >=1.0'a
+# sürükleyip XTTS'i bozabiliyor — sabitliyoruz.
+huggingface-hub<1.0
+
+# ============================================================================
+# Canlı STT (streaming) — OPSİYONEL. Yerel faster-whisper + silero-VAD.
+# ----------------------------------------------------------------------------
+# WebSocket /ws/stt için (konuşurken anlık deşifre). Groq batch yolundan (stt.py)
+# ayrıdır. silero-vad torch'a dayanır (yukarıdaki TTS bölümüyle paylaşılır); bu
+# bölüm istenmiyorsa silinebilir, batch STT (Groq) yine çalışır.
+# ============================================================================
+faster-whisper           # CTranslate2 tabanlı hızlı yerel Whisper
+silero-vad               # konuşma/sessizlik (cümle sınırı) tespiti

@@ -9,7 +9,7 @@ adım adım loglar.
 - **Backend:** Python · LangGraph · FastAPI
 - **Frontend:** React 19 · Vite
 - **LLM:** sağlayıcı-bağımsız (OpenAI-uyumlu endpoint; varsayılan `gpt-4.1`)
-- **Ses tanıma (STT):** Groq Whisper (`whisper-large-v3`)
+- **Ses tanıma (STT):** Canlı/streaming (yerel faster-whisper + silero-VAD) · ayrıca Groq Whisper (batch)
 - **Sesli çıktı (TTS):** Coqui XTTS-v2 — Türkçe TTS, yerel/CUDA, süreç içi (opsiyonel)
 
 ---
@@ -263,13 +263,37 @@ Frontend'e yalnızca **nihai cevap** döner; ara sürecin tamamı sunucuda
 
 ## Ses tanıma (STT)
 
-Frontend'deki mikrofon butonu tarayıcıda (MediaRecorder) ses alır, `/api/transcribe`
-ucuna yükler; backend Groq Whisper ile metne çevirip döndürür. Metin **giriş
-kutusuna yazılır** (otomatik gönderilmez) — gözden geçirip gönderirsin.
+İki yol vardır:
 
-Giriş kutusunun üstünde bir **cihaz seçici** ve **canlı seviye göstergesi** vardır:
-birden çok mikrofon varsa (ör. dahili + Bluetooth kulaklık) doğru olanı seçebilir ve
-mikrofonun sesi duyup duymadığını anında görebilirsin.
+### Canlı (streaming) — konuşurken deşifre (varsayılan mikrofon davranışı)
+
+Mikrofona basınca konuştukça metin giriş kutusunda **anında belirir** ("merhaba"
+yazılır, cümle büyür, sessizlikte sabitlenir). Tamamen **yerel** çalışır (cloud yok).
+
+Zincir:
+```
+🎤 → Web Audio + AudioWorklet (16kHz PCM) → WebSocket /ws/stt → FastAPI
+   → silero-VAD (konuşma/sessizlik) + faster-whisper (medium) → {committed, interim}
+   → React: giriş kutusuna canlı yazı
+```
+
+- **faster-whisper** (CTranslate2 motoru) + **Whisper `medium`** model, `int8_float16`
+  (CUDA). RTX serisinde gerçek-zamandan hızlı.
+- **silero-VAD** cümleleri sessizlikte böler: konuşurken **interim** (geçici) metin,
+  pause'da **committed** (kesin) metin. Böylece batch Whisper akışlı hâle gelir.
+- Ayarlar `.env`'den: `STT_STREAM_MODEL` (small/medium/large-v3), `STT_SILENCE_END`,
+  `STT_VAD_THRESHOLD` vb. Model ilk canlı istekte iner.
+- Kod: [`stt_stream.py`](src/agent_core/stt_stream.py) + `/ws/stt` ([api.py](src/agent_core/api.py)).
+- **Chrome/Edge** önerilir (16 kHz AudioContext + AudioWorklet).
+
+### Batch (Groq Whisper) — bulut, tek seferlik
+
+`/api/transcribe` ucu hâlâ mevcuttur (kaydı bitirince tüm klibi Groq Whisper'a
+yükleyip tam metni döndürür). Canlı yoldan bağımsızdır; ikisi bir arada durur.
+
+Metin her iki yolda da **giriş kutusuna yazılır**, otomatik gönderilmez — gözden
+geçirip gönderirsin. Giriş kutusunun üstünde **cihaz seçici** ve **canlı seviye
+göstergesi** vardır.
 
 ---
 

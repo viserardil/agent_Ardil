@@ -12,12 +12,13 @@ TASARIM KARARLARI (bilinçli):
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
@@ -217,6 +218,44 @@ def send_message(session_id: str, request: SendMessageRequest) -> SendMessageRes
 
     ai_message = store.add_message(session_id, "ai", answer, run=summary)
     return SendMessageResponse(user_message=user_message, ai_message=ai_message, run=summary)
+
+
+@app.websocket("/ws/stt")
+async def ws_stt(ws: WebSocket):
+    """Canlı (streaming) STT: tarayıcı 16 kHz mono float32 PCM akıtır; konuşurken
+    deşifre edilen metin geri akar.
+
+    Her ikili (binary) mesaj bir PCM parçasıdır. Sunucu ``{committed, interim, final}``
+    JSON'ları yollar: ``interim`` o an konuşulan cümlenin geçici hâli, ``final=true``
+    bir cümlenin sabitlendiğini bildirir. Groq batch yolundan (/api/transcribe) ayrıdır.
+    """
+    await ws.accept()
+    import numpy as np
+
+    from agent_core.stt_stream import LiveTranscriber
+
+    tr = LiveTranscriber()
+    loop = asyncio.get_event_loop()
+    try:
+        while True:
+            data = await ws.receive_bytes()
+            pcm = np.frombuffer(data, dtype=np.float32)
+            # Deşifre bloklayıcı (GPU/CPU); event loop'u kilitlememek için thread'e ver.
+            updates = await loop.run_in_executor(None, tr.add_audio, pcm)
+            for upd in updates:
+                await ws.send_json(upd)
+    except WebSocketDisconnect:
+        pass
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await ws.send_json({"error": f"{type(exc).__name__}: {exc}"})
+        except Exception:
+            pass
+    finally:
+        try:
+            await ws.send_json(tr.finalize())
+        except Exception:
+            pass
 
 
 @app.get("/api/runs/{run_id}")

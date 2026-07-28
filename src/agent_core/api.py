@@ -18,13 +18,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from agent_core.router import build_agent_graph
-from agent_core.stt import transcribe
 from agent_core.tracing import RunTracer
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -227,7 +226,7 @@ async def ws_stt(ws: WebSocket):
 
     Her ikili (binary) mesaj bir PCM parçasıdır. Sunucu ``{committed, interim, final}``
     JSON'ları yollar: ``interim`` o an konuşulan cümlenin geçici hâli, ``final=true``
-    bir cümlenin sabitlendiğini bildirir. Groq batch yolundan (/api/transcribe) ayrıdır.
+    bir cümlenin sabitlendiğini bildirir.
     """
     await ws.accept()
     import numpy as np
@@ -265,49 +264,6 @@ def get_run(run_id: str) -> dict:
     if run is None:
         raise HTTPException(status_code=404, detail=f"Koşu bulunamadı: {run_id}")
     return run
-
-
-@app.post("/api/transcribe")
-async def transcribe_audio(
-    file: UploadFile = File(...),
-    language: str | None = Form(default=None),
-) -> dict:
-    """Ses kaydını metne çevirir (Groq Whisper).
-
-    Frontend'deki mikrofon butonu, MediaRecorder ile aldığı ses klibini buraya
-    yükler; dönen metni giriş kutusuna yazar. Bu uç ajanı ÇALIŞTIRMAZ — sadece
-    sesi metne çevirir; kullanıcı metni gözden geçirip normal akışla gönderir.
-    """
-    audio = await file.read()
-    if not audio:
-        raise HTTPException(status_code=400, detail="Boş ses dosyası.")
-
-    # GEÇİCİ TEŞHİS: tarayıcının gönderdiği ham sesi diske kaydet ve boyut/tür logla.
-    # "Altyazı M.K." halüsinasyonu, Whisper'a ulaşan sesin boş/çözülemez olduğuna
-    # işaret ediyor; bu kayıt gerçekte ne geldiğini görmek için.
-    import time as _time
-
-    debug_dir = LOG_DIR.parent / "stt"
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    ext = (file.filename or "audio.webm").split(".")[-1]
-    debug_path = debug_dir / f"{int(_time.time())}.{ext}"
-    debug_path.write_bytes(audio)
-    print(
-        f"[STT] alındı: {len(audio)} bayt · tür={file.content_type} · "
-        f"ad={file.filename} · kaydedildi={debug_path}"
-    )
-
-    try:
-        text = transcribe(
-            audio,
-            filename=file.filename or "audio.webm",
-            content_type=file.content_type,
-            language=language,
-        )
-    except Exception as exc:  # sağlayıcı hatası UI'a anlamlı dönsün
-        raise HTTPException(status_code=502, detail=f"Transkripsiyon hatası: {exc}")
-    print(f"[STT] transkript: {text!r}")
-    return {"text": text}
 
 
 @app.get("/api/artifacts/{filename}")

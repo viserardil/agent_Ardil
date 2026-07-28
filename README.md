@@ -9,7 +9,7 @@ adım adım loglar.
 - **Backend:** Python · LangGraph · FastAPI
 - **Frontend:** React 19 · Vite
 - **LLM:** sağlayıcı-bağımsız (OpenAI-uyumlu endpoint; varsayılan `gpt-4.1`)
-- **Ses tanıma (STT):** Canlı/streaming (yerel faster-whisper + silero-VAD) · ayrıca Groq Whisper (batch)
+- **Ses tanıma (STT):** Yerel canlı/streaming (faster-whisper + silero-VAD, konuşurken deşifre)
 - **Sesli çıktı (TTS):** Coqui XTTS-v2 — Türkçe TTS, yerel/CUDA, süreç içi (opsiyonel)
 
 ---
@@ -130,7 +130,7 @@ uv pip install -e .
 
 # ortam değişkenleri
 cp .env.example .env
-# .env'i açıp LLM_API_KEY, GROQ_API_KEY (ve istersen TAVILY_API_KEY) doldur
+# .env'i açıp LLM_API_KEY (ve istersen TAVILY_API_KEY) doldur
 ```
 
 > **Not (Windows/OneDrive):** Proje OneDrive altındaysa `uv` komutlarını
@@ -263,12 +263,10 @@ Frontend'e yalnızca **nihai cevap** döner; ara sürecin tamamı sunucuda
 
 ## Ses tanıma (STT)
 
-İki yol vardır:
-
-### Canlı (streaming) — konuşurken deşifre (varsayılan mikrofon davranışı)
-
-Mikrofona basınca konuştukça metin giriş kutusunda **anında belirir** ("merhaba"
-yazılır, cümle büyür, sessizlikte sabitlenir). Tamamen **yerel** çalışır (cloud yok).
+**Tamamen yerel, canlı (streaming)** — cloud yok. Mikrofona basınca konuştukça metin
+giriş kutusunda **anında belirir** ("merhaba" yazılır, cümle büyür, sessizlikte
+sabitlenir). Metin **giriş kutusuna yazılır**, otomatik gönderilmez — gözden geçirip
+gönderirsin.
 
 Zincir:
 ```
@@ -286,14 +284,10 @@ Zincir:
 - Kod: [`stt_stream.py`](src/agent_core/stt_stream.py) + `/ws/stt` ([api.py](src/agent_core/api.py)).
 - **Chrome/Edge** önerilir (16 kHz AudioContext + AudioWorklet).
 
-### Batch (Groq Whisper) — bulut, tek seferlik
+Giriş kutusunun üstünde **cihaz seçici** ve **canlı seviye göstergesi** vardır.
 
-`/api/transcribe` ucu hâlâ mevcuttur (kaydı bitirince tüm klibi Groq Whisper'a
-yükleyip tam metni döndürür). Canlı yoldan bağımsızdır; ikisi bir arada durur.
-
-Metin her iki yolda da **giriş kutusuna yazılır**, otomatik gönderilmez — gözden
-geçirip gönderirsin. Giriş kutusunun üstünde **cihaz seçici** ve **canlı seviye
-göstergesi** vardır.
+> Önceki bulut yolu (Groq Whisper batch, `/api/transcribe`) kaldırıldı; STT artık
+> tamamen yereldir.
 
 ---
 
@@ -373,16 +367,13 @@ Tümü `.env`'de (bkz. [`.env.example`](.env.example)):
 | `LLM_API_KEY` | ✅ | Ana model API anahtarı |
 | `LLM_MODEL` | ✅ | Model adı (ör. `gpt-4.1`) |
 | `LLM_BASE_URL` | ✅* | OpenAI-uyumlu endpoint (*varsayılan OpenAI ise gerekmez) |
-| `GROQ_API_KEY` | ✅ | Ses tanıma (STT) için |
 | `TAVILY_API_KEY` | — | `web_search` aracı için |
 | `TRIAGE_MODEL` | — | Triyaj için ayrı/daha hızlı model (boşsa ana model) |
-| `STT_MODEL` | — | Varsayılan `whisper-large-v3` |
-| `STT_LANGUAGE` | — | Ör. `tr` (boşsa otomatik tespit) |
 | `LLM_STRUCTURED_METHOD` | — | Sağlayıcı `json_schema` desteklemiyorsa `function_calling` |
-| `TTS_LANGUAGE` | — | Sesli çıktı dili (varsayılan `tr`) |
-| `TTS_SPEAKER` | — | XTTS yerleşik konuşmacı (varsayılan `Claribel Dervla`) |
+| `STT_STREAM_MODEL` | — | Canlı STT modeli (varsayılan `medium`; small/large-v3) |
+| `TTS_SPEAKER` | — | XTTS yerleşik konuşmacı (varsayılan `Tanja Adelina`) |
 
-> Sesli çıktının tüm knob'ları (konuşmacı, klonlama, parçalama) için bkz.
+> STT (canlı) ve TTS knob'larının tamamı için bkz. [Ses tanıma](#ses-tanıma-stt),
 > [Sesli çıktı (TTS)](#sesli-çıktı-tts) ve `.env.example`.
 
 ---

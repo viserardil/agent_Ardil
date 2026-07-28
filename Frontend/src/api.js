@@ -28,38 +28,19 @@ async function request(path, options = {}) {
   return response.json();
 }
 
-// Ses kaydını metne çevirir (Groq Whisper). JSON değil multipart gönderilir:
-// Content-Type başlığını ELLE KOYMA — tarayıcı, FormData için sınır (boundary)
-// içeren doğru başlığı kendisi üretir. Ajanı çalıştırmaz, sadece metni döndürür.
-async function transcribe(blob, filename = 'audio.webm', language) {
-  const form = new FormData();
-  form.append('file', blob, filename);
-  if (language) form.append('language', language);
-
-  const response = await fetch(BASE + '/transcribe', { method: 'POST', body: form });
-  if (!response.ok) {
-    let detail = '';
-    try {
-      detail = (await response.json()).detail || '';
-    } catch {
-      // gövde JSON değilse durum kodu yeterli
-    }
-    throw new Error(detail || `${response.status} ${response.statusText}`);
-  }
-  return response.json();
-}
+// Not: canlı (streaming) STT WebSocket ile çalışır (/ws/stt), bkz. ChatInput.jsx —
+// burada bir REST çağrısı yoktur.
 
 export const api = {
   health: () => request('/health'),
   listSessions: () => request('/sessions'),
   createSession: () => request('/sessions', { method: 'POST' }),
   getMessages: (sessionId) => request(`/sessions/${sessionId}/messages`),
-  // voice=true iken backend cevabı Chatterbox ile seslendirip parça parça döner
+  // voice=true iken backend cevabı XTTS ile seslendirip parça parça döner
   // (ai_message.run.audio_urls). Kapalıyken sesli çıktı hiç devreye girmez.
   sendMessage: (sessionId, text, voice = false) =>
     request(`/sessions/${sessionId}/messages`, {
       method: 'POST',
       body: JSON.stringify({ text, voice })
-    }),
-  transcribe
+    })
 };

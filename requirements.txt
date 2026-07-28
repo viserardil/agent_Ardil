@@ -23,14 +23,13 @@ requests>=2.31.0          # web_search (Tavily REST)
 # --- HTTP API (frontend'in konuştuğu backend) ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
-python-multipart>=0.0.9   # /api/transcribe dosya yüklemesi
 
 # ============================================================================
 # Sesli çıktı (TTS) — OPSİYONEL. Coqui XTTS-v2 (yerel, CUDA).
 # ----------------------------------------------------------------------------
-# İstemiyorsan bu bölümü SİLEBİLİRSİN: STT (Groq Whisper) ve agent bunları
-# gerektirmez, torch+CUDA ~2.5 GB yer kaplar. XTTS numpy 2.x ile uyumlu olduğu
-# için ayrı venv gerekmez; model süreç içinde (agent_core/tts.py) yüklenir.
+# Metin-yalnızca agent bunu gerektirmez; ama torch+CUDA'yı aşağıdaki CANLI STT
+# bölümü de PAYLAŞIR (silero-vad). Sesli giriş/çıkış istemiyorsan iki bölümü de
+# silip ~2.5 GB torch'tan kurtulabilirsin. XTTS numpy 2.x uyumlu, ayrı venv gerekmez.
 #
 # NOT: torch'un CUDA'lı (+cu124) sürümü aşağıdaki pytorch index'inden gelir.
 # OneDrive altında kuruyorsan:  uv pip install --link-mode=copy -r requirements.txt
@@ -48,9 +47,9 @@ huggingface-hub<1.0
 # ============================================================================
 # Canlı STT (streaming) — OPSİYONEL. Yerel faster-whisper + silero-VAD.
 # ----------------------------------------------------------------------------
-# WebSocket /ws/stt için (konuşurken anlık deşifre). Groq batch yolundan (stt.py)
-# ayrıdır. silero-vad torch'a dayanır (yukarıdaki TTS bölümüyle paylaşılır); bu
-# bölüm istenmiyorsa silinebilir, batch STT (Groq) yine çalışır.
+# WebSocket /ws/stt için (konuşurken anlık deşifre). silero-vad torch'a dayanır
+# (yukarıdaki TTS bölümündeki torch ile paylaşılır). Sesli girişi istemiyorsan bu
+# bölümü silebilirsin; agent metinle çalışmaya devam eder.
 # ============================================================================
 faster-whisper           # CTranslate2 tabanlı hızlı yerel Whisper
 silero-vad               # konuşma/sessizlik (cümle sınırı) tespiti

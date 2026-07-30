@@ -5,12 +5,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    // /api istekleri backend'e yönlendirilir. Proxy sayesinde frontend göreli yol
-    // kullanır ("/api/..."), böylece ajanın ürettiği görsellerin URL'leri
-    // (/api/artifacts/x.png) <img src> içinde doğrudan çalışır ve CORS'a takılmaz.
+    port: 5173,
+    strictPort: true,
+    // LEGACY karşılaştırma sistemi: backend 8001'de (Groq whisper-large-v3 + XTTS).
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: 'http://127.0.0.1:8001',
         changeOrigin: true,
       },
     },

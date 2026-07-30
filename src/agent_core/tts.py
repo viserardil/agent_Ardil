@@ -4,9 +4,16 @@ XTTS ana venv'le uyumlu (numpy 2.x) olduğundan ayrı venv/süreç GEREKMEZ; mod
 süreçte TEMBEL yüklenir (ilk sesli istekte, sonra bellekte sıcak kalır). Sesli mod
 kapalıyken torch/TTS hiç import edilmez — hiçbir maliyeti olmaz.
 
-Uzun metin cümle sınırında parçalanır (parça başına ≤``CHUNK_MAX_TOKENS`` token, en
-çok ``MAX_CHUNKS`` parça); parçalar SIRAYLA numaralanır ki arayüz aşamalı oynatabilsin.
-Parça-sınırı klik/sessizliği için hafif kırpma + fade uygulanır.
+Uzun metin cümle sınırında parçalanır (parça başına ≤``CHUNK_MAX_CHARS`` karakter,
+en çok ``MAX_CHUNKS`` parça); parçalar SIRAYLA numaralanır ki arayüz aşamalı
+oynatabilsin. Parça-sınırı klik/sessizliği için hafif kırpma + fade uygulanır.
+
+NEDEN KARAKTER (token değil)? XTTS'in Türkçe için KENDİ iç sınırı 226 karakterdir
+(TTS/tts/layers/xtts/tokenizer.py: char_limits["tr"]). Bunu aşan girdilerde XTTS
+kendi içinde (spaCy ile, daha az kontrollü) yeniden bölüyor ve uyarı basıyor
+("this might cause truncated audio") — cümleler arası tempo/prozodi SAPMASININ
+asıl sebebi buydu. tiktoken tabanlı token sayımı İngilizce odaklı olduğu için
+Türkçe karaktere güvenilir eşlenmiyor; bu yüzden ham karakter uzunluğuna geçildi.
 """
 
 from __future__ import annotations
@@ -17,11 +24,20 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List
 
+from agent_core.tr_normalize import normalize as _normalize_tr
+
 # XTTS-v2 model lisans onayını otomatikle (aksi halde interaktif prompt sunucuyu bloklar).
 os.environ.setdefault("COQUI_TOS_AGREED", "1")
 
+# XTTS'i tamamen kapatma anahtarı: STT (Groq, cloud/VRAM'siz) aktif kalırken TTS'in
+# (yerel, ~2GB VRAM) hiç yüklenmemesini garantiler — ör. 6GB kartta başka bir GPU
+# modeliyle (Qwen ASR gibi) çakışmasın diye.
+_TTS_DISABLED = os.getenv("TTS_DISABLED", "0").strip().lower() in ("1", "true", "yes")
+
 # --- Parçalama ayarları (env ile override edilebilir) ------------------------
-CHUNK_MAX_TOKENS = int(os.getenv("TTS_CHUNK_TOKENS", "120"))
+# XTTS'in Türkçe iç sınırı 226 karakter (tokenizer.py: char_limits["tr"]); 200
+# güvenlik payı bırakır. Dil değişirse (en=250, de=253, ...) elle ayarlanmalı.
+CHUNK_MAX_CHARS = int(os.getenv("TTS_CHUNK_CHARS", "200"))
 MAX_CHUNKS = int(os.getenv("TTS_MAX_CHUNKS", "24"))
 
 # --- Model / ses ayarları ----------------------------------------------------
@@ -51,26 +67,16 @@ _SILENCE_THRESH = float(os.getenv("TTS_SILENCE_THRESH", "0.015"))
 _KEEP_PAD_MS = float(os.getenv("TTS_KEEP_PAD_MS", "30"))
 
 
-def _count_tokens(text: str) -> int:
-    """Parça sınırı için token sayısı. tiktoken yoksa kaba tahmine düşer."""
-    try:
-        import tiktoken
-
-        enc = tiktoken.get_encoding("cl100k_base")
-        return len(enc.encode(text))
-    except Exception:
-        return max(1, len(text) // 4)  # ~4 karakter/token
-
-
 def chunk_text(
     text: str,
-    max_tokens: int = CHUNK_MAX_TOKENS,
+    max_chars: int = CHUNK_MAX_CHARS,
     max_chunks: int = MAX_CHUNKS,
 ) -> List[str]:
-    """Metni cümle sınırlarında ≤``max_tokens``'lık parçalara böler.
+    """Metni cümle sınırlarında ≤``max_chars`` karakterlik parçalara böler.
 
     En çok ``max_chunks`` parça döner; tavanı aşan artık metin dışarıda bırakılır.
-    Tek bir cümle tek başına sınırı aşıyorsa yine tek parça olur.
+    Tek bir cümle TEK BAŞINA sınırı aşıyorsa (noktalaması az uzun bir cümle),
+    XTTS'in kendi iç bölücüsüne hiç bırakmamak için kelime sınırında ZORLA bölünür.
     """
     text = (text or "").strip()
     if not text:
@@ -81,8 +87,28 @@ def chunk_text(
     chunks: List[str] = []
     cur = ""
     for s in sentences:
+        if len(s) > max_chars:
+            # Tek cümle sınırı aşıyor: önce birikeni kapat, sonra kelime kelime böl.
+            if cur:
+                chunks.append(cur)
+                if len(chunks) >= max_chunks:
+                    return chunks
+                cur = ""
+            piece = ""
+            for w in s.split():
+                candidate = (piece + " " + w).strip() if piece else w
+                if piece and len(candidate) > max_chars:
+                    chunks.append(piece)
+                    if len(chunks) >= max_chunks:
+                        return chunks
+                    piece = w
+                else:
+                    piece = candidate
+            cur = piece
+            continue
+
         candidate = (cur + " " + s).strip() if cur else s
-        if cur and _count_tokens(candidate) > max_tokens:
+        if cur and len(candidate) > max_chars:
             chunks.append(cur)
             if len(chunks) >= max_chunks:
                 return chunks
@@ -144,6 +170,15 @@ def synthesize(text: str, out_dir: Path, run_id: str) -> List[str]:
     Boş metinde boş liste döner. Hata olursa çağıran (api.py) yakalar ve metin
     cevabını sesli olmadan döndürür.
     """
+    if _TTS_DISABLED:
+        # XTTS'i (VRAM) hiç yükleme — bu backend'de yalnızca Groq STT (cloud,
+        # VRAM'siz) aktif kalsın. torch/TTS import'una bile girmeden dönülür.
+        return []
+
+    # Parçalamadan ÖNCE tam metin üzerinde: sıra sayısı/kısaltma gibi kurallar
+    # cümle bağlamına (sonraki kelime, noktalama) bakıyor; parça sınırı bunu bölerse
+    # yanlış eşleşebilir.
+    text = _normalize_tr(text)
     chunks = chunk_text(text)
     if not chunks:
         return []

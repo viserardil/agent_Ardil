@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Paperclip, Mic, Square, ArrowUp, Languages, Volume2, VolumeX } from 'lucide-react';
+import { Paperclip, Mic, Square, ArrowUp, Languages, Volume2, VolumeX, Loader2 } from 'lucide-react';
 
 // Ses tanıma dilleri (canlı STT şu an backend'de STT_STREAM_LANG ile ayarlanır;
 // seçici ileride streaming'e de bağlanacak).
@@ -41,6 +41,8 @@ registerProcessor('pcm-proc', PCMProc);
 export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary }) {
   const [text, setText] = useState('');
   const [recording, setRecording] = useState(false);
+  // Kayıt durdurulduktan sonra Qwen final'i işlerken (birkaç sn sürebilir) true.
+  const [transcribing, setTranscribing] = useState(false);
   const [micError, setMicError] = useState('');
 
   const [devices, setDevices] = useState([]);
@@ -79,6 +81,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
   const baseTextRef = useRef('');   // streaming başlamadan önceki metin (üzerine eklenir)
+  const stopTimeoutRef = useRef(null); // final gelmezse WS'i güvenlik için zorla kapatır
 
   const defaultChips = [
     'AAPL güncel fiyatı nedir?',
@@ -192,6 +195,18 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
         const i = d.interim || '';
         // committed (kesin) + interim (geçici) canlı olarak kutuya
         setText((baseTextRef.current + c + (i ? (c ? ' ' : '') + i : '')).trimStart());
+        // final geldi: sunucu zaten bağlantıyı kapatacak, biz de temizleyelim.
+        if (d.final) {
+          setTranscribing(false);
+          if (stopTimeoutRef.current) clearTimeout(stopTimeoutRef.current);
+          stopTimeoutRef.current = null;
+          try {
+            ws.close();
+          } catch {
+            // yok say
+          }
+          if (wsRef.current === ws) wsRef.current = null;
+        }
       };
       ws.onerror = () => setMicError('Canlı STT bağlantı hatası — backend açık mı?');
 
@@ -210,12 +225,32 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
 
   const stopLive = () => {
     setRecording(false);
+    // Bağlantıyı HEMEN kapatma: Qwen final'i işlerken (birkaç saniye sürebilir)
+    // bağlantı açık kalmalı — kapandıktan sonra sunucu mesaj gönderemiyor
+    // (Starlette/FastAPI kısıtı). Bunun yerine "dur" sinyali yolla; sunucu
+    // finalize edip cevabı gönderdikten SONRA kendisi kapatır (bkz. api.py).
     try {
-      wsRef.current?.close();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        setTranscribing(true);
+        wsRef.current.send('__stop__');
+        // Güvenlik: Qwen hiç cevap vermezse (hata/donma) bağlantıyı zorla kapat.
+        stopTimeoutRef.current = setTimeout(() => {
+          setTranscribing(false);
+          try {
+            wsRef.current?.close();
+          } catch {
+            // yok say
+          }
+          wsRef.current = null;
+        }, 20000);
+      } else {
+        wsRef.current?.close();
+        wsRef.current = null;
+      }
     } catch {
-      // yok say
+      wsRef.current = null;
     }
-    wsRef.current = null;
+    // Mikrofonu/ses yakalamayı HEMEN durdur (WS'ten bağımsız).
     try {
       if (nodeRef.current) nodeRef.current.port.onmessage = null;
       nodeRef.current?.disconnect();
@@ -254,7 +289,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
     else startLive();
   };
 
-  const micTitle = recording ? 'Canlı dinlemeyi durdur' : 'Canlı sesli giriş';
+  const micTitle = recording ? 'Kaydı durdur' : transcribing ? 'Metne çevriliyor…' : 'Sesli giriş';
   const silentWhileRecording = recording && level < 0.01;
 
   return (
@@ -336,7 +371,7 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
               />
             </div>
             <span style={{ fontSize: 12, color: silentWhileRecording ? '#b45309' : '#16a34a', whiteSpace: 'nowrap' }}>
-              {silentWhileRecording ? 'ses algılanmıyor' : 'canlı dinliyorum…'}
+              {silentWhileRecording ? 'ses algılanmıyor' : 'dinliyorum… (metin durunca gelir)'}
             </span>
           </div>
         )}
@@ -361,10 +396,12 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
           className="chat-textarea"
           placeholder={
             recording
-              ? 'Canlı dinliyorum… konuş, yazı anında beliriyor'
-              : disabled
-                ? 'Ajan çalışıyor…'
-                : 'Send a message to ardilAgent...'
+              ? 'Dinliyorum… bitince mikrofona tekrar bas'
+              : transcribing
+                ? 'Metne çevriliyor…'
+                : disabled
+                  ? 'Ajan çalışıyor…'
+                  : 'Send a message to ardilAgent...'
           }
           rows={1}
           value={text}
@@ -378,10 +415,16 @@ export function ChatInput({ onSendMessage, suggestionChips, disabled, runSummary
           className="input-action-btn"
           title={micTitle}
           onClick={toggleMic}
-          disabled={disabled}
+          disabled={disabled || transcribing}
           style={recording ? { color: '#ef4444' } : undefined}
         >
-          {recording ? <Square size={18} fill="#ef4444" /> : <Mic size={18} />}
+          {transcribing ? (
+            <Loader2 size={18} style={{ animation: 'ardil-spin 1s linear infinite' }} />
+          ) : recording ? (
+            <Square size={18} fill="#ef4444" />
+          ) : (
+            <Mic size={18} />
+          )}
         </button>
 
         <button

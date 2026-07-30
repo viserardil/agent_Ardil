@@ -221,12 +221,16 @@ def send_message(session_id: str, request: SendMessageRequest) -> SendMessageRes
 
 @app.websocket("/ws/stt")
 async def ws_stt(ws: WebSocket):
-    """Canlı (streaming) STT: tarayıcı 16 kHz mono float32 PCM akıtır; konuşurken
-    deşifre edilen metin geri akar.
+    """STT: tarayıcı 16 kHz mono float32 PCM akıtır; metin geri döner.
 
-    Her ikili (binary) mesaj bir PCM parçasıdır. Sunucu ``{committed, interim, final}``
-    JSON'ları yollar: ``interim`` o an konuşulan cümlenin geçici hâli, ``final=true``
-    bir cümlenin sabitlendiğini bildirir.
+    ŞU AN SAF (batch) TEST MODU: Qwen3-ASR'ı VAD/interim etkisi olmadan
+    değerlendirmek için canlı interim GEÇİCİ OLARAK DEVRE DIŞI (bkz.
+    agent_core/stt_stream.py). Ses ikili (binary) mesajlarla akar ve biriktirilir.
+
+    İstemci bitirince metin "__stop__" mesajı yollar (bağlantıyı KAPATMADAN önce)
+    — sunucu bağlantı hâlâ AÇIKKEN finalize edip cevabı gönderir, sonra kapatır.
+    (Starlette/FastAPI bağlantı kapandıktan SONRA mesaj göndermeye izin vermez;
+    finalize'ı yalnızca ``finally``/disconnect'e bağlamak bu yüzden güvenilmezdi.)
     """
     await ws.accept()
     import numpy as np
@@ -235,24 +239,39 @@ async def ws_stt(ws: WebSocket):
 
     tr = LiveTranscriber()
     loop = asyncio.get_event_loop()
+    _dbg = {"chunks": 0, "samples": 0, "maxrms": 0.0, "updates": 0}  # GEÇİCİ TEŞHİS
+    print("[WS-STT] baglanti acildi")
     try:
         while True:
-            data = await ws.receive_bytes()
-            pcm = np.frombuffer(data, dtype=np.float32)
-            # Deşifre bloklayıcı (GPU/CPU); event loop'u kilitlememek için thread'e ver.
-            updates = await loop.run_in_executor(None, tr.add_audio, pcm)
-            for upd in updates:
-                await ws.send_json(upd)
+            message = await ws.receive()
+            if message.get("type") == "websocket.disconnect":
+                break
+
+            if (data := message.get("bytes")) is not None:
+                pcm = np.frombuffer(data, dtype=np.float32)
+                _dbg["chunks"] += 1
+                _dbg["samples"] += pcm.size
+                if pcm.size:
+                    _dbg["maxrms"] = max(_dbg["maxrms"], float(np.sqrt(np.mean(pcm ** 2))))
+                # Deşifre bloklayıcı (GPU/CPU); event loop'u kilitlememek için thread'e ver.
+                updates = await loop.run_in_executor(None, tr.add_audio, pcm)
+                _dbg["updates"] += len(updates)
+                for upd in updates:
+                    await ws.send_json(upd)
+                if _dbg["chunks"] % 20 == 0:
+                    print(f"[WS-STT] chunk={_dbg['chunks']} sure={_dbg['samples']/16000:.1f}s "
+                          f"maxRMS={_dbg['maxrms']:.4f} update={_dbg['updates']}")
+            elif message.get("text") == "__stop__":
+                result = await loop.run_in_executor(None, tr.finalize)
+                await ws.send_json(result)
+                print(f"[WS-STT] stop -> final gonderildi: {result['committed']!r}")
+                break  # oturum bitti; sunucu bağlantıyı kapatır
     except WebSocketDisconnect:
-        pass
+        print(f"[WS-STT] beklenmedik kopma · chunk={_dbg['chunks']} "
+              f"sure={_dbg['samples']/16000:.1f}s maxRMS={_dbg['maxrms']:.4f}")
     except Exception as exc:  # noqa: BLE001
         try:
             await ws.send_json({"error": f"{type(exc).__name__}: {exc}"})
-        except Exception:
-            pass
-    finally:
-        try:
-            await ws.send_json(tr.finalize())
         except Exception:
             pass
 

@@ -25,31 +25,30 @@ fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 
 # ============================================================================
-# Sesli çıktı (TTS) — OPSİYONEL. Coqui XTTS-v2 (yerel, CUDA).
+# Ses tanıma (STT) — OPSİYONEL, AKTİF. Qwen3-ASR-1.7B (yerel, GPU/CUDA).
 # ----------------------------------------------------------------------------
-# Metin-yalnızca agent bunu gerektirmez; ama torch+CUDA'yı aşağıdaki CANLI STT
-# bölümü de PAYLAŞIR (silero-vad). Sesli giriş/çıkış istemiyorsan iki bölümü de
-# silip ~2.5 GB torch'tan kurtulabilirsin. XTTS numpy 2.x uyumlu, ayrı venv gerekmez.
+# WebSocket /ws/stt: mikrofon sesini metne çevirir. ŞU AN SAF (batch) test
+# modunda — canlı interim/VAD GEÇİCİ DEVRE DIŞI (bkz. agent_core/stt_stream.py):
+# ses biriktirilir, "durdur" sinyaliyle TEK SEFERDE deşifre edilir.
+# transformers>=5.13 GEREKİR (Qwen3-ASR bu sürümde native destekleniyor).
 #
-# NOT: torch'un CUDA'lı (+cu124) sürümü aşağıdaki pytorch index'inden gelir.
-# OneDrive altında kuruyorsan:  uv pip install --link-mode=copy -r requirements.txt
+# NOT: OneDrive altında kuruyorsan  uv pip install --link-mode=copy -r requirements.txt
 # ============================================================================
 --extra-index-url https://download.pytorch.org/whl/cu124
 torch==2.6.0+cu124
 torchaudio==2.6.0+cu124
-coqui-tts
-transformers<5            # 5.x'te XTTS'in kullandığı isin_mps_friendly kaldırıldı
 setuptools               # bazı bağımlılıklar pkg_resources kullanıyor
-# transformers <1.0 huggingface-hub ister; faster-whisper kurulumu bunu >=1.0'a
-# sürükleyip XTTS'i bozabiliyor — sabitliyoruz.
-huggingface-hub<1.0
+transformers>=5.13
+accelerate
+huggingface-hub>=1.5,<2  # transformers 5.13+'ın istediği aralık
 
 # ============================================================================
-# Canlı STT (streaming) — OPSİYONEL. Yerel faster-whisper + silero-VAD.
+# Sesli çıktı (TTS) — OPSİYONEL, AKTİF. Fish Audio S2-Pro (CLOUD API).
 # ----------------------------------------------------------------------------
-# WebSocket /ws/stt için (konuşurken anlık deşifre). silero-vad torch'a dayanır
-# (yukarıdaki TTS bölümündeki torch ile paylaşılır). Sesli girişi istemiyorsan bu
-# bölümü silebilirsin; agent metinle çalışmaya devam eder.
+# Yerel GPU/VRAM GEREKMEZ — S2-Pro (5B, huggingface.co/fishaudio/s2-pro) Fish
+# Audio'nun kendi sunucularında çalışır; bu sadece hafif bir HTTP istemcisi.
+# .env'de FISH_AUDIO_API_KEY gerekir (bkz. .env.example). Eskiden yerel XTTS-v2
+# kullanılıyordu (coqui-tts, transformers<5 isterdi — Qwen3-ASR'ın >=5.13 ile
+# çakışırdı); artık TTS bulutta olduğu için bu çakışma da ortadan kalktı.
 # ============================================================================
-faster-whisper           # CTranslate2 tabanlı hızlı yerel Whisper
-silero-vad               # konuşma/sessizlik (cümle sınırı) tespiti
+fish-audio-sdk

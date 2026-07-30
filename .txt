@@ -1,0 +1,7 @@
+Nvidia (NVDA) ve AMD (AMD) şirketlerinin güncel verileri ve hisse fiyatları karşılaştırıldığında:
+
+- Nvidia'nın piyasa değeri yaklaşık 4,6 trilyon USD, çalışan sayısı 42.000 ve özsermaye kârlılığı (ROE) %114,29 ile oldukça yüksek. Hisse fiyatı 190,01 USD.
+- AMD'nin piyasa değeri yaklaşık 700 milyar USD, çalışan sayısı 31.000 ve ROE'si %8,06. Hisse fiyatı ise 429,56 USD.
+- F/K oranı Nvidia'da 30,21, AMD'de ise 142,71. PD/DD oranı Nvidia'da 23,55, AMD'de 10,86.
+
+Sonuç olarak, AMD'nin hisse fiyatı mutlak olarak daha yüksek olsa da, Nvidia'nın piyasa değeri, kârlılık oranları ve finansal göstergeleri AMD'ye göre çok daha güçlüdür. Her iki şirket de yarı iletken sektöründe faaliyet göstermektedir, ancak Nvidia finansal açıdan daha büyük ve kârlı bir konumdadır.
